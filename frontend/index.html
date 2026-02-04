@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adaptive Continuous Authentication</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">🔐</div>
+                <h1>Adaptive Auth</h1>
+            </div>
+            <div class="header-info" id="headerInfo">
+                <span class="status-badge" id="statusBadge">Not Authenticated</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Login/Register View -->
+            <div id="authView" class="view active">
+                <div class="auth-card">
+                    <h2>Welcome</h2>
+                    <p class="subtitle">Secure passwordless authentication with continuous behavioral monitoring</p>
+
+                    <div class="auth-tabs">
+                        <button class="tab-btn active" data-tab="login">Login</button>
+                        <button class="tab-btn" data-tab="register">Register</button>
+                    </div>
+
+                    <!-- Login Form -->
+                    <div id="loginForm" class="tab-content active">
+                        <div class="form-group">
+                            <label for="loginUsername">Username</label>
+                            <input type="text" id="loginUsername" placeholder="Enter your username"
+                                autocomplete="username">
+                        </div>
+                        <button class="btn btn-primary" id="loginBtn">
+                            <span class="btn-icon">🔑</span>
+                            Login with WebAuthn
+                        </button>
+                        <p class="help-text">Use your security key or biometric authentication</p>
+                    </div>
+
+                    <!-- Register Form -->
+                    <div id="registerForm" class="tab-content">
+                        <div class="form-group">
+                            <label for="registerUsername">Username</label>
+                            <input type="text" id="registerUsername" placeholder="Choose a username"
+                                autocomplete="username">
+                        </div>
+                        <button class="btn btn-primary" id="registerBtn">
+                            <span class="btn-icon">✨</span>
+                            Register with WebAuthn
+                        </button>
+                        <p class="help-text">Register your security key or biometric device</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard View -->
+            <div id="dashboardView" class="view">
+                <div class="dashboard-grid">
+                    <!-- Trust Score Card -->
+                    <div class="card trust-card">
+                        <div class="card-header">
+                            <h3>Trust Score</h3>
+                            <button class="btn-icon-only" id="refreshTrustBtn" title="Refresh">🔄</button>
+                        </div>
+                        <div class="trust-score-display">
+                            <div class="trust-score-circle" id="trustScoreCircle">
+                                <div class="trust-score-value" id="trustScoreValue">100</div>
+                                <div class="trust-score-label">Trust Level</div>
+                            </div>
+                            <div class="trust-status" id="trustStatus">
+                                <div class="status-indicator"></div>
+                                <span>All systems normal</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Session Info Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Session Information</h3>
+                        </div>
+                        <div class="session-info">
+                            <div class="info-row">
+                                <span class="info-label">Username:</span>
+                                <span class="info-value" id="sessionUsername">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Session ID:</span>
+                                <span class="info-value mono" id="sessionId">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Started:</span>
+                                <span class="info-value" id="sessionStarted">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Expires:</span>
+                                <span class="info-value" id="sessionExpires">-</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-secondary" id="logoutBtn">Logout</button>
+                    </div>
+
+                    <!-- Activity Monitor Card -->
+                    <div class="card activity-card">
+                        <div class="card-header">
+                            <h3>Behavioral Activity</h3>
+                        </div>
+                        <div class="activity-stats">
+                            <div class="stat-item">
+                                <div class="stat-icon">⌨️</div>
+                                <div class="stat-content">
+                                    <div class="stat-value" id="keystrokeCount">0</div>
+                                    <div class="stat-label">Keystrokes</div>
+                                </div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-icon">🖱️</div>
+                                <div class="stat-content">
+                                    <div class="stat-value" id="mouseCount">0</div>
+                                    <div class="stat-label">Mouse Events</div>
+                                </div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-icon">📊</div>
+                                <div class="stat-content">
+                                    <div class="stat-value" id="batchCount">0</div>
+                                    <div class="stat-label">Batches Sent</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Alerts Card -->
+                    <div class="card alerts-card">
+                        <div class="card-header">
+                            <h3>Security Alerts</h3>
+                        </div>
+                        <div class="alerts-container" id="alertsContainer">
+                            <div class="no-alerts">No security alerts</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Step-up Authentication Modal -->
+        <div id="stepupModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>⚠️ Step-up Authentication Required</h3>
+                </div>
+                <div class="modal-body">
+                    <p>Your trust score has dropped below the threshold. Please re-authenticate to continue.</p>
+                    <div class="trust-score-mini" id="stepupTrustScore">Trust Score: 0</div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="stepupAuthBtn">Authenticate</button>
+                    <button class="btn btn-secondary" id="stepupCancelBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Toast -->
+        <div id="toast" class="toast"></div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="auth.js"></script>
+    <script src="capture.js"></script>
+    <script src="dashboard.js"></script>
+</body>
+
+</html>
