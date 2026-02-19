@@ -22,38 +22,36 @@ from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from app.database import get_db
 from app.config import settings
 from app.auth import schemas, models
-from app.auth.session import create_session, validate_session, revoke_session
+from app.auth.session import (
+    create_session, validate_session, revoke_session,
+    registration_challenges, authentication_challenges
+)
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-# In-memory storage for challenges (in production, use Redis)
-registration_challenges = {}
-authentication_challenges = {}
-
+# -------------------------------------------------------------------------
+# Registration
+# -------------------------------------------------------------------------
 
 @router.post("/register/begin", response_model=schemas.RegistrationBeginResponse)
 async def register_begin(
     request: schemas.RegistrationBeginRequest,
     db: Session = Depends(get_db)
 ):
-    """
-    Begin WebAuthn registration process.
-    """
-    # Check if user already exists
+    """Begin WebAuthn registration process."""
     existing_user = db.query(models.User).filter(
         models.User.username == request.username
     ).first()
-    
+
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already exists")
-    
-    # Generate registration options
+
     options = generate_registration_options(
         rp_id=settings.RP_ID,
         rp_name=settings.RP_NAME,
-        user_id=request.username.encode('utf-8'),
+        user_id=request.username.encode("utf-8"),
         user_name=request.username,
         user_display_name=request.username,
         authenticator_selection=AuthenticatorSelectionCriteria(
@@ -65,15 +63,13 @@ async def register_begin(
             COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256
         ]
     )
-    
-    # Store challenge
-    registration_challenges[request.username] = options.challenge
-    
-    # Convert options to JSON-serializable format
+
+    # Thread-safe challenge storage with TTL
+    registration_challenges.set(request.username, options.challenge)
+
     options_json = json.loads(options_to_json(options))
-    
     logger.info(f"Registration started for user: {request.username}")
-    
+
     return schemas.RegistrationBeginResponse(options=options_json)
 
 
@@ -82,27 +78,21 @@ async def register_complete(
     request: schemas.RegistrationCompleteRequest,
     db: Session = Depends(get_db)
 ):
-    """
-    Complete WebAuthn registration process.
-    """
-    # Get stored challenge
+    """Complete WebAuthn registration process."""
     challenge = registration_challenges.get(request.username)
     if not challenge:
-        raise HTTPException(status_code=400, detail="No registration in progress")
-    
+        raise HTTPException(status_code=400, detail="No registration in progress or challenge expired")
+
     try:
-        # Verify registration response
         credential = request.credential
-        
-        # Create user
+
         user = models.User(
             username=request.username,
             display_name=request.username
         )
         db.add(user)
         db.flush()
-        
-        # Store credential
+
         credential_record = models.Credential(
             user_id=user.id,
             credential_id=credential.get("id", ""),
@@ -111,68 +101,62 @@ async def register_complete(
         )
         db.add(credential_record)
         db.commit()
-        
-        # Clean up challenge
-        del registration_challenges[request.username]
-        
+
+        registration_challenges.delete(request.username)
         logger.info(f"Registration completed for user: {request.username}")
-        
+
         return schemas.RegistrationCompleteResponse(
             success=True,
             message="Registration successful",
             user_id=user.id
         )
-        
+
     except Exception as e:
         db.rollback()
         logger.error(f"Registration failed: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Registration failed: {str(e)}")
 
 
+# -------------------------------------------------------------------------
+# Login
+# -------------------------------------------------------------------------
+
 @router.post("/login/begin", response_model=schemas.AuthenticationBeginResponse)
 async def login_begin(
     request: schemas.AuthenticationBeginRequest,
     db: Session = Depends(get_db)
 ):
-    """
-    Begin WebAuthn authentication process.
-    """
-    # Check if user exists
+    """Begin WebAuthn authentication process."""
     user = db.query(models.User).filter(
         models.User.username == request.username
     ).first()
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Get user credentials
+
     credentials = db.query(models.Credential).filter(
         models.Credential.user_id == user.id
     ).all()
-    
+
     if not credentials:
         raise HTTPException(status_code=400, detail="No credentials registered")
-    
-    # Generate authentication options
+
     allow_credentials = [
-        PublicKeyCredentialDescriptor(id=cred.credential_id.encode('utf-8'))
+        PublicKeyCredentialDescriptor(id=cred.credential_id.encode("utf-8"))
         for cred in credentials
     ]
-    
+
     options = generate_authentication_options(
         rp_id=settings.RP_ID,
         allow_credentials=allow_credentials,
         user_verification=UserVerificationRequirement.PREFERRED
     )
-    
-    # Store challenge
-    authentication_challenges[request.username] = options.challenge
-    
-    # Convert options to JSON-serializable format
+
+    authentication_challenges.set(request.username, options.challenge)
+
     options_json = json.loads(options_to_json(options))
-    
     logger.info(f"Authentication started for user: {request.username}")
-    
+
     return schemas.AuthenticationBeginResponse(options=options_json)
 
 
@@ -181,31 +165,25 @@ async def login_complete(
     request: schemas.AuthenticationCompleteRequest,
     db: Session = Depends(get_db)
 ):
-    """
-    Complete WebAuthn authentication process.
-    """
+    """Complete WebAuthn authentication process."""
     try:
         credential = request.credential
         credential_id = credential.get("id", "")
-        
-        # Find credential
+
         cred_record = db.query(models.Credential).filter(
             models.Credential.credential_id == credential_id
         ).first()
-        
+
         if not cred_record:
             raise HTTPException(status_code=400, detail="Credential not found")
-        
-        # Get user
+
         user = db.query(models.User).filter(
             models.User.id == cred_record.user_id
         ).first()
-        
-        # Create session
+
         session = create_session(db, user.id)
-        
         logger.info(f"Authentication completed for user: {user.username}")
-        
+
         return schemas.AuthenticationCompleteResponse(
             success=True,
             message="Authentication successful",
@@ -213,31 +191,34 @@ async def login_complete(
             session_id=session.id,
             expires_at=session.expires_at
         )
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Authentication failed: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 
+
+# -------------------------------------------------------------------------
+# Session management
+# -------------------------------------------------------------------------
 
 @router.post("/logout")
 async def logout(
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
-    """
-    Logout and revoke session.
-    """
+    """Logout and revoke session."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
-    
+
     token = authorization.replace("Bearer ", "")
     session = validate_session(db, token)
-    
+
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
-    
+
     revoke_session(db, session.id)
-    
     return {"success": True, "message": "Logged out successfully"}
 
 
@@ -246,20 +227,18 @@ async def get_session(
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
-    """
-    Get current session information.
-    """
+    """Get current session information."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
-    
+
     token = authorization.replace("Bearer ", "")
     session = validate_session(db, token)
-    
+
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
-    
+
     user = db.query(models.User).filter(models.User.id == session.user_id).first()
-    
+
     return schemas.SessionResponse(
         session_id=session.id,
         user_id=session.user_id,
