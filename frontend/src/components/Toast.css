@@ -1,0 +1,33 @@
+.toast {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    padding: 1rem 1.5rem;
+    background: var(--dark-light);
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow-xl);
+    border: 1px solid var(--border);
+    z-index: 2000;
+    animation: slideUp 0.3s ease-in-out;
+    max-width: 400px;
+}
+
+.toast.success {
+    border-color: var(--success);
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+}
+
+.toast.error {
+    border-color: var(--danger);
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger);
+}
+
+@media (max-width: 768px) {
+    .toast {
+        left: 1rem;
+        right: 1rem;
+        bottom: 1rem;
+    }
+}

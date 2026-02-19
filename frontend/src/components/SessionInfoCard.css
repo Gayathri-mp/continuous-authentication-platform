@@ -1,0 +1,39 @@
+.session-info {
+    margin-bottom: 1.5rem;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.info-row:last-child {
+    border-bottom: none;
+}
+
+.info-label {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.info-value {
+    color: var(--text);
+}
+
+.mono {
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+}
+
+.btn-secondary {
+    background: var(--dark-lighter);
+    color: var(--text);
+    border: 1px solid var(--border);
+    width: 100%;
+}
+
+.btn-secondary:hover {
+    background: var(--dark-light);
+}

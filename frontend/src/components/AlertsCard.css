@@ -1,0 +1,31 @@
+.alerts-container {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.no-alerts {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+}
+
+.alert {
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+    border-radius: 0.5rem;
+    border-left: 4px solid;
+    animation: slideIn 0.3s ease-in-out;
+    font-size: 0.875rem;
+}
+
+.alert.warning {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.alert.danger {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--danger);
+    color: var(--danger);
+}
