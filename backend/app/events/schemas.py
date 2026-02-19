@@ -33,6 +33,8 @@ class EventBatchResponse(BaseModel):
     events_processed: int
     trust_score: Optional[float] = None
     status: Optional[str] = None
+    action: Optional[str] = None          # continue | monitor | stepup | terminate
+    require_stepup: Optional[bool] = None
 
 
 class SessionEventsResponse(BaseModel):
