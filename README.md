@@ -91,8 +91,8 @@ This platform provides:
 2. **Frontend setup**
    ```bash
    cd frontend
-   # Serve with any static file server
-   python -m http.server 8080
+   npm install
+   npm run dev
    ```
 
 ## 📡 API Reference
@@ -260,9 +260,11 @@ pytest tests/integration/ -v
 - **Session**: JWT tokens
 
 ### Frontend
-- **UI**: HTML5, CSS3, Vanilla JavaScript
+- **Framework**: React 18 with Vite
+- **UI**: Modern component-based architecture
 - **Auth**: WebAuthn API
-- **Communication**: Fetch API / WebSocket
+- **Communication**: Axios / Fetch API
+- **State Management**: React Context API
 
 ### DevOps
 - **Containerization**: Docker
@@ -286,11 +288,30 @@ adaptive-continuous-auth/
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── frontend/
-│   ├── index.html               # Main UI
-│   ├── style.css                # Styling
-│   ├── capture.js               # Behavioral capture agent
-│   ├── auth.js                  # WebAuthn client
-│   └── dashboard.js             # Monitoring dashboard
+│   ├── src/
+│   │   ├── components/          # React components
+│   │   │   ├── Header.jsx
+│   │   │   ├── AuthView.jsx     # Login/Register
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── TrustScoreCard.jsx
+│   │   │   ├── SessionInfoCard.jsx
+│   │   │   ├── ActivityCard.jsx
+│   │   │   ├── AlertsCard.jsx
+│   │   │   ├── StepUpModal.jsx
+│   │   │   └── Toast.jsx
+│   │   ├── context/
+│   │   │   └── AuthContext.jsx  # Auth state
+│   │   ├── hooks/
+│   │   │   ├── useToast.jsx
+│   │   │   └── useBehavioralCapture.js
+│   │   ├── services/
+│   │   │   └── api.js            # API client
+│   │   ├── App.jsx
+│   │   ├── main.jsx
+│   │   └── index.css
+│   ├── index.html
+│   ├── package.json
+│   └── vite.config.js
 ├── data/
 │   ├── raw_events/              # Event logs
 │   ├── features/                # Extracted features
@@ -299,7 +320,8 @@ adaptive-continuous-auth/
 │   ├── architecture.md          # Architecture details
 │   ├── threat_model.md          # Security analysis
 │   ├── api.md                   # API documentation
-│   └── evaluation.md            # Evaluation report
+│   ├── deployment.md            # Deployment guide
+│   └── evaluation.md            # Evaluation template
 ├── docker-compose.yml
 └── README.md
 ```
@@ -309,8 +331,9 @@ adaptive-continuous-auth/
 This is a proof-of-concept research project. Contributions welcome for:
 - Additional behavioral signals (touch, gyroscope)
 - Advanced ML models (autoencoders, LSTMs)
-- Mobile client support
+- Mobile client support (React Native)
 - Performance optimizations
+- UI/UX improvements
 
 ## 📄 License
 
