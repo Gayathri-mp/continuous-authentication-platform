@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { trustAPI } from '../services/api'
+import { trustAPI, authAPI } from '../services/api'
 import { useToast } from '../hooks/useToast'
 import TrustScoreCard from './TrustScoreCard'
 import SessionInfoCard from './SessionInfoCard'
@@ -10,9 +10,13 @@ import StepUpModal from './StepUpModal'
 import { useBehavioralCapture } from '../hooks/useBehavioralCapture'
 import './Dashboard.css'
 
+const POLL_INTERVAL_MS = 10_000   // poll trust score every 10 s
+const TERMINATE_DELAY_MS = 4_000  // delay before auto-logout on termination
+
 function Dashboard() {
     const { token, sessionId, username, logout } = useAuth()
     const { showToast } = useToast()
+
     const [trustScore, setTrustScore] = useState(100)
     const [trustStatus, setTrustStatus] = useState('OK')
     const [showStepUp, setShowStepUp] = useState(false)
@@ -21,78 +25,114 @@ function Dashboard() {
 
     const { stats, updateTrustScore } = useBehavioralCapture(token, sessionId)
 
-    useEffect(() => {
-        loadSessionInfo()
-        const interval = setInterval(refreshTrustScore, 10000) // Every 10 seconds
-        return () => clearInterval(interval)
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+    const addAlert = useCallback((message, type) => {
+        setAlerts(prev => [{
+            id: Date.now(),
+            message,
+            type,
+            timestamp: new Date().toLocaleTimeString()
+        }, ...prev].slice(0, 20))
     }, [])
 
-    const loadSessionInfo = async () => {
-        try {
-            const response = await fetch(`http://localhost:8000/auth/session`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
-            if (response.ok) {
-                const data = await response.json()
-                setSessionInfo(data)
-                setTrustScore(data.trust_score)
-                setTrustStatus(data.status)
+    const handleTerminate = useCallback(() => {
+        addAlert('⛔ Session terminated by security policy', 'danger')
+        showToast('Session terminated — logging out in 4 seconds', 'error')
+        setTimeout(() => logout(), TERMINATE_DELAY_MS)
+    }, [addAlert, showToast, logout])
+
+    const applyPolicy = useCallback((action, requireStepup, score, status) => {
+        setTrustScore(score ?? trustScore)
+        setTrustStatus(status ?? trustStatus)
+
+        if (action === 'terminate') {
+            handleTerminate()
+        } else if (action === 'stepup' || requireStepup) {
+            if (!showStepUp) {
+                setShowStepUp(true)
+                addAlert('⚠️ Suspicious behaviour — step-up authentication required', 'warning')
+                showToast('Re-authentication required', 'warning')
             }
+        } else if (action === 'monitor') {
+            addAlert(`📊 Trust score in monitoring range (${Math.round(score)})`, 'info')
+        }
+    }, [trustScore, trustStatus, showStepUp, handleTerminate, addAlert, showToast])
+
+    // -----------------------------------------------------------------------
+    // Load session + fetch real alerts from backend on mount
+    // -----------------------------------------------------------------------
+    const loadSessionInfo = useCallback(async () => {
+        try {
+            const data = await authAPI.getSession(token)
+            setSessionInfo(data)
+            setTrustScore(data.trust_score)
+            setTrustStatus(data.status)
         } catch (error) {
             console.error('Error loading session info:', error)
         }
-    }
+    }, [token])
 
+    const fetchAlerts = useCallback(async () => {
+        try {
+            const data = await trustAPI.getAlerts(token, sessionId)
+            // Map backend alerts to local format
+            const mapped = data.map(a => ({
+                id: a.id,
+                message: a.message,
+                type: a.severity,
+                timestamp: new Date(a.created_at).toLocaleTimeString()
+            }))
+            setAlerts(mapped)
+        } catch (_) {
+            // Silently ignore — alerts are supplementary
+        }
+    }, [token, sessionId])
+
+    useEffect(() => {
+        loadSessionInfo()
+        fetchAlerts()
+        const interval = setInterval(refreshTrustScore, POLL_INTERVAL_MS)
+        return () => clearInterval(interval)
+    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // -----------------------------------------------------------------------
+    // Periodic trust score poll
+    // -----------------------------------------------------------------------
     const refreshTrustScore = async () => {
         try {
             const data = await trustAPI.getTrustScore(token, sessionId)
-            setTrustScore(data.trust_score)
-            setTrustStatus(data.status)
-
-            if (data.require_stepup) {
-                setShowStepUp(true)
-                addAlert('Step-up authentication required', 'warning')
-            }
+            applyPolicy(data.action, data.require_stepup, data.trust_score, data.status)
         } catch (error) {
             console.error('Error refreshing trust score:', error)
         }
     }
 
-    const handleStepUp = async () => {
-        try {
-            await trustAPI.handleStepUp(token, sessionId, {})
-            setTrustScore(100)
-            setTrustStatus('OK')
-            setShowStepUp(false)
-            showToast('Step-up authentication successful!', 'success')
-        } catch (error) {
-            showToast(`Step-up failed: ${error.message}`, 'error')
-        }
-    }
-
-    const addAlert = (message, type) => {
-        const newAlert = {
-            id: Date.now(),
-            message,
-            type,
-            timestamp: new Date().toLocaleTimeString()
-        }
-        setAlerts(prev => [newAlert, ...prev].slice(0, 10))
-    }
-
-    // Update trust score from behavioral capture
+    // -----------------------------------------------------------------------
+    // Real-time updates from behavioral capture batches
+    // -----------------------------------------------------------------------
     useEffect(() => {
-        if (updateTrustScore.score !== null) {
-            setTrustScore(updateTrustScore.score)
-            setTrustStatus(updateTrustScore.status)
+        if (updateTrustScore.score === null) return
 
-            if (updateTrustScore.status === 'SUSPICIOUS') {
-                addAlert('Suspicious behavior detected', 'warning')
-            } else if (updateTrustScore.status === 'CRITICAL') {
-                addAlert('Critical trust level', 'danger')
-            }
-        }
-    }, [updateTrustScore])
+        const { score, status, action, requireStepup } = updateTrustScore
+        applyPolicy(action, requireStepup, score, status)
+
+        // Refresh alert list from backend after each batch
+        fetchAlerts()
+    }, [updateTrustScore]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // -----------------------------------------------------------------------
+    // Step-up completed
+    // -----------------------------------------------------------------------
+    const handleStepUpSuccess = () => {
+        setTrustScore(100)
+        setTrustStatus('OK')
+        setShowStepUp(false)
+        addAlert('✅ Step-up authentication successful', 'info')
+        showToast('Re-authentication successful!', 'success')
+        fetchAlerts()
+    }
 
     return (
         <div className="dashboard">
@@ -102,24 +142,23 @@ function Dashboard() {
                     status={trustStatus}
                     onRefresh={refreshTrustScore}
                 />
-
                 <SessionInfoCard
                     username={username}
                     sessionId={sessionId}
                     sessionInfo={sessionInfo}
                     onLogout={logout}
                 />
-
                 <ActivityCard stats={stats} />
-
                 <AlertsCard alerts={alerts} />
             </div>
 
             {showStepUp && (
                 <StepUpModal
                     trustScore={trustScore}
-                    onAuth={handleStepUp}
-                    onCancel={() => setShowStepUp(false)}
+                    token={token}
+                    sessionId={sessionId}
+                    onSuccess={handleStepUpSuccess}
+                    onCancel={logout}   // cancel = forced logout (no trust = no access)
                 />
             )}
         </div>
