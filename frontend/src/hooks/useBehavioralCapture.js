@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { eventsAPI } from '../services/api'
 
 const BATCH_INTERVAL = 5000 // 5 seconds
-const MOUSE_THROTTLE = 100 // ms
+const MOUSE_THROTTLE = 100  // ms
 
 export const useBehavioralCapture = (token, sessionId) => {
     const [stats, setStats] = useState({
@@ -10,7 +10,13 @@ export const useBehavioralCapture = (token, sessionId) => {
         mouseCount: 0,
         batchesSent: 0
     })
-    const [updateTrustScore, setUpdateTrustScore] = useState({ score: null, status: null })
+    // Full policy state forwarded from each batch response
+    const [updateTrustScore, setUpdateTrustScore] = useState({
+        score: null,
+        status: null,
+        action: null,
+        requireStepup: null
+    })
 
     const eventBuffer = useRef([])
     const lastMouseMove = useRef(0)
@@ -18,22 +24,19 @@ export const useBehavioralCapture = (token, sessionId) => {
 
     useEffect(() => {
         if (!token || !sessionId) return
-
         startCapture()
         return () => stopCapture()
-    }, [token, sessionId])
+    }, [token, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const startCapture = () => {
         if (isCapturing.current) return
         isCapturing.current = true
 
-        // Add event listeners
         document.addEventListener('keydown', handleKeyDown)
         document.addEventListener('keyup', handleKeyUp)
         document.addEventListener('mousemove', handleMouseMove)
         document.addEventListener('click', handleMouseClick)
 
-        // Start batch interval
         const interval = setInterval(sendEventBatch, BATCH_INTERVAL)
 
         return () => {
@@ -127,12 +130,20 @@ export const useBehavioralCapture = (token, sessionId) => {
             setStats(prev => ({ ...prev, batchesSent: prev.batchesSent + 1 }))
 
             if (result.trust_score !== undefined) {
-                setUpdateTrustScore({ score: result.trust_score, status: result.status })
+                // Forward all policy fields so Dashboard can enforce immediately
+                setUpdateTrustScore({
+                    score: result.trust_score,
+                    status: result.status ?? null,
+                    action: result.action ?? null,
+                    requireStepup: result.require_stepup ?? null
+                })
             }
 
-            console.log(`Batch sent: ${result.events_processed} events, trust score: ${result.trust_score}`)
+            console.debug(
+                `[Capture] Batch: ${result.events_processed} events | score: ${result.trust_score} | action: ${result.action}`
+            )
         } catch (error) {
-            console.error('Error sending event batch:', error)
+            console.error('[Capture] Error sending event batch:', error)
         }
     }
 
