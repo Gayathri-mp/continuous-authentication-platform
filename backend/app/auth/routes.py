@@ -24,7 +24,7 @@ from app.config import settings
 from app.auth import schemas, models
 from app.auth.session import (
     create_session, validate_session, revoke_session,
-    registration_challenges, authentication_challenges
+    set_challenge, get_challenge, delete_challenge
 )
 from app.utils.logger import logger
 
@@ -64,8 +64,8 @@ async def register_begin(
         ]
     )
 
-    # Thread-safe challenge storage with TTL
-    registration_challenges.set(request.username, options.challenge)
+    # Store challenge in DB (namespaced with "reg:" prefix)
+    set_challenge(db, f"reg:{request.username}", options.challenge)
 
     options_json = json.loads(options_to_json(options))
     logger.info(f"Registration started for user: {request.username}")
@@ -79,7 +79,7 @@ async def register_complete(
     db: Session = Depends(get_db)
 ):
     """Complete WebAuthn registration process."""
-    challenge = registration_challenges.get(request.username)
+    challenge = get_challenge(db, f"reg:{request.username}")
     if not challenge:
         raise HTTPException(status_code=400, detail="No registration in progress or challenge expired")
 
@@ -102,7 +102,7 @@ async def register_complete(
         db.add(credential_record)
         db.commit()
 
-        registration_challenges.delete(request.username)
+        delete_challenge(db, f"reg:{request.username}")
         logger.info(f"Registration completed for user: {request.username}")
 
         return schemas.RegistrationCompleteResponse(
@@ -152,7 +152,8 @@ async def login_begin(
         user_verification=UserVerificationRequirement.PREFERRED
     )
 
-    authentication_challenges.set(request.username, options.challenge)
+    # Store challenge in DB (namespaced with "auth:" prefix)
+    set_challenge(db, f"auth:{request.username}", options.challenge)
 
     options_json = json.loads(options_to_json(options))
     logger.info(f"Authentication started for user: {request.username}")
