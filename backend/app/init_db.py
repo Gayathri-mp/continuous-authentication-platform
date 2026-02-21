@@ -5,7 +5,7 @@ Creates all tables and optionally seeds initial data.
 """
 
 from app.database import init_db, SessionLocal
-from app.auth.models import User, Credential, Session
+from app.auth.models import User, Credential, Session, AuthChallenge
 from app.events.models import BehavioralEvent, FeatureVector
 from app.utils.logger import logger
 
@@ -34,6 +34,9 @@ def main():
             
             feature_count = db.query(FeatureVector).count()
             logger.info(f"Features table verified ({feature_count} features)")
+
+            challenge_count = db.query(AuthChallenge).count()
+            logger.info(f"Auth challenges table verified ({challenge_count} rows)")
             
         finally:
             db.close()
