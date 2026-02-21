@@ -1,58 +1,68 @@
-import threading
-import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from app.config import settings
-from app.auth.models import Session as SessionModel, User
+from app.auth.models import Session as SessionModel, User, AuthChallenge
 from app.utils.logger import logger
 import uuid
 
 
 # ---------------------------------------------------------------------------
-# Thread-safe challenge store with TTL (replaces bare dict)
-# Suitable for single-server MVP; replace with Redis for multi-server prod.
+# DB-backed challenge helpers
 # ---------------------------------------------------------------------------
-class _ChallengeStore:
-    """Thread-safe, TTL-based challenge store."""
+# Challenges are stored in the ``auth_challenges`` table with an expiry
+# timestamp.  The ``key`` argument uses a prefix to avoid collisions between
+# different challenge types:
+#   registration → "reg:<username>"
+#   login        → "auth:<username>"
+#   step-up      → "stepup:<session_id>"
+# ---------------------------------------------------------------------------
 
-    def __init__(self, ttl_seconds: int = 300):
-        self._store: dict = {}
-        self._lock = threading.Lock()
-        self._ttl = ttl_seconds
-
-    def set(self, key: str, value: bytes) -> None:
-        with self._lock:
-            self._store[key] = {"value": value, "expires": time.monotonic() + self._ttl}
-
-    def get(self, key: str) -> Optional[bytes]:
-        with self._lock:
-            entry = self._store.get(key)
-            if entry is None:
-                return None
-            if time.monotonic() > entry["expires"]:
-                del self._store[key]
-                return None
-            return entry["value"]
-
-    def delete(self, key: str) -> None:
-        with self._lock:
-            self._store.pop(key, None)
-
-    def purge_expired(self) -> None:
-        now = time.monotonic()
-        with self._lock:
-            expired_keys = [k for k, v in self._store.items() if now > v["expires"]]
-            for k in expired_keys:
-                del self._store[k]
+_CHALLENGE_TTL_SECONDS = 300
 
 
-# Module-level stores — one for registration, one for authentication,
-# one for step-up re-authentication.
-registration_challenges = _ChallengeStore(ttl_seconds=300)
-authentication_challenges = _ChallengeStore(ttl_seconds=300)
-stepup_challenges = _ChallengeStore(ttl_seconds=300)
+def _purge_expired(db: Session) -> None:
+    """Delete all expired challenge rows (housekeeping, called as a side-effect)."""
+    now = datetime.now(timezone.utc)
+    db.query(AuthChallenge).filter(AuthChallenge.expires_at <= now).delete(synchronize_session=False)
+    db.commit()
+
+
+def set_challenge(db: Session, key: str, challenge: bytes, ttl: int = _CHALLENGE_TTL_SECONDS) -> None:
+    """Persist a WebAuthn challenge to the DB, replacing any existing row for *key*."""
+    _purge_expired(db)
+    # Remove any previous challenge for this key (e.g. user retried begin)
+    db.query(AuthChallenge).filter(AuthChallenge.username == key).delete(synchronize_session=False)
+    db.add(AuthChallenge(
+        username=key,
+        challenge=challenge.hex(),
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl)
+    ))
+    db.commit()
+
+
+def get_challenge(db: Session, key: str) -> Optional[bytes]:
+    """Retrieve a challenge from the DB and return it as bytes.
+
+    Returns ``None`` if the key is not found or the row has expired.
+    Expired rows are deleted eagerly.
+    """
+    now = datetime.now(timezone.utc)
+    row = db.query(AuthChallenge).filter(AuthChallenge.username == key).first()
+    if row is None:
+        return None
+    if row.expires_at.replace(tzinfo=timezone.utc) <= now:
+        db.delete(row)
+        db.commit()
+        return None
+    return bytes.fromhex(row.challenge)
+
+
+def delete_challenge(db: Session, key: str) -> None:
+    """Delete a challenge row after successful verification."""
+    db.query(AuthChallenge).filter(AuthChallenge.username == key).delete(synchronize_session=False)
+    db.commit()
 
 
 # ---------------------------------------------------------------------------
