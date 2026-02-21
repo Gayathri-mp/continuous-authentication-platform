@@ -72,3 +72,20 @@ class SecurityAlert(Base):
 
     # Relationships
     session = relationship("Session", back_populates="alerts")
+
+
+class AuthChallenge(Base):
+    """Temporary WebAuthn challenge storage (replaces in-memory dict).
+
+    Rows are short-lived (TTL enforced via expires_at).  The ``username``
+    column acts as a namespaced key:
+      * registration  → ``"reg:<username>"``
+      * login         → ``"auth:<username>"``
+      * step-up       → ``"stepup:<session_id>"``
+    """
+    __tablename__ = "auth_challenges"
+
+    id         = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    username   = Column(String, nullable=False, index=True)   # namespaced key
+    challenge  = Column(Text, nullable=False)                 # hex-encoded bytes
+    expires_at = Column(DateTime(timezone=True), nullable=False)
