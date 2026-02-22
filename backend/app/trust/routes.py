@@ -16,7 +16,7 @@ from webauthn.helpers.structs import (
 
 from app.database import get_db
 from app.config import settings
-from app.auth.session import validate_session, update_trust_score, stepup_challenges
+from app.auth.session import validate_session, update_trust_score, set_challenge, get_challenge, delete_challenge
 from app.auth.models import Session as SessionModel, Credential, SecurityAlert
 from app.trust.policy import evaluate_policy
 from app.utils.logger import logger
@@ -161,8 +161,8 @@ async def stepup_begin(
         user_verification=UserVerificationRequirement.REQUIRED  # stricter for step-up
     )
 
-    # Store challenge keyed by session_id
-    stepup_challenges.set(session.id, options.challenge)
+    # Store challenge in DB (namespaced with "stepup:" prefix)
+    set_challenge(db, f"stepup:{session.id}", options.challenge)
 
     options_json = json.loads(options_to_json(options))
     logger.info(f"Step-up challenge issued for session {session.id}")
@@ -198,8 +198,8 @@ async def stepup_complete(
     if session.id != request.session_id:
         raise HTTPException(status_code=403, detail="Session ID mismatch")
 
-    # Retrieve stored challenge
-    expected_challenge = stepup_challenges.get(session.id)
+    # Retrieve stored challenge from DB
+    expected_challenge = get_challenge(db, f"stepup:{session.id}")
     if not expected_challenge:
         raise HTTPException(status_code=400, detail="No step-up challenge found or it expired — begin step-up again")
 
@@ -236,8 +236,8 @@ async def stepup_complete(
         # if the credential belongs to the right user — log the exception for audit
         logger.info("Falling back to credential ownership check (POC mode)")
 
-    # Clean up challenge
-    stepup_challenges.delete(session.id)
+    # Clean up challenge from DB
+    delete_challenge(db, f"stepup:{session.id}")
 
     # Reset trust score
     session.trust_score = 100.0
