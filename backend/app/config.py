@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # Behavioral Monitoring
     BATCH_INTERVAL_SECONDS: int = 5
     FEATURE_WINDOW_SECONDS: int = 10
+    STEPUP_TIMEOUT_SECONDS: int = 30  # auto-terminate if step-up not completed in time
     
     # ML Model
     MODEL_PATH: str = "data/models/isolation_forest.pkl"
