@@ -51,6 +51,7 @@ class Session(Base):
     last_activity = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False)
     is_active = Column(Boolean, default=True)
+    stepup_deadline = Column(DateTime(timezone=True), nullable=True)  # set when stepup required
 
     # Relationships
     user = relationship("User", back_populates="sessions")
