@@ -23,7 +23,12 @@ function Dashboard() {
     const [sessionInfo, setSessionInfo] = useState(null)
     const [alerts, setAlerts] = useState([])
 
-    const { stats, updateTrustScore } = useBehavioralCapture(token, sessionId)
+    const { stats, updateTrustScore, pauseCapture, resumeCapture } = useBehavioralCapture(token, sessionId)
+
+    // -----------------------------------------------------------------------
+    // Derived state
+    // -----------------------------------------------------------------------
+    const isMonitoring = trustStatus === 'MONITOR'
 
     // -----------------------------------------------------------------------
     // Helpers
@@ -44,24 +49,25 @@ function Dashboard() {
     }, [addAlert, showToast, logout])
 
     const applyPolicy = useCallback((action, requireStepup, score, status) => {
-        setTrustScore(score ?? trustScore)
-        setTrustStatus(status ?? trustStatus)
+        if (score !== null && score !== undefined) setTrustScore(score)
+        if (status) setTrustStatus(status)
 
         if (action === 'terminate') {
             handleTerminate()
         } else if (action === 'stepup' || requireStepup) {
             if (!showStepUp) {
                 setShowStepUp(true)
+                pauseCapture()  // pause event collection while step-up is pending
                 addAlert('⚠️ Suspicious behaviour — step-up authentication required', 'warning')
-                showToast('Re-authentication required', 'warning')
+                showToast('Re-authentication required (30s timeout)', 'warning')
             }
         } else if (action === 'monitor') {
             addAlert(`📊 Trust score in monitoring range (${Math.round(score)})`, 'info')
         }
-    }, [trustScore, trustStatus, showStepUp, handleTerminate, addAlert, showToast])
+    }, [showStepUp, handleTerminate, pauseCapture, addAlert, showToast])
 
     // -----------------------------------------------------------------------
-    // Load session + fetch real alerts from backend on mount
+    // Session load + alert fetch
     // -----------------------------------------------------------------------
     const loadSessionInfo = useCallback(async () => {
         try {
@@ -77,7 +83,6 @@ function Dashboard() {
     const fetchAlerts = useCallback(async () => {
         try {
             const data = await trustAPI.getAlerts(token, sessionId)
-            // Map backend alerts to local format
             const mapped = data.map(a => ({
                 id: a.id,
                 message: a.message,
@@ -85,9 +90,7 @@ function Dashboard() {
                 timestamp: new Date(a.created_at).toLocaleTimeString()
             }))
             setAlerts(mapped)
-        } catch (_) {
-            // Silently ignore — alerts are supplementary
-        }
+        } catch (_) { /* supplementary — silently ignore */ }
     }, [token, sessionId])
 
     useEffect(() => {
@@ -110,15 +113,12 @@ function Dashboard() {
     }
 
     // -----------------------------------------------------------------------
-    // Real-time updates from behavioral capture batches
+    // React to behavioral capture batch results
     // -----------------------------------------------------------------------
     useEffect(() => {
         if (updateTrustScore.score === null) return
-
         const { score, status, action, requireStepup } = updateTrustScore
         applyPolicy(action, requireStepup, score, status)
-
-        // Refresh alert list from backend after each batch
         fetchAlerts()
     }, [updateTrustScore]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -129,14 +129,26 @@ function Dashboard() {
         setTrustScore(100)
         setTrustStatus('OK')
         setShowStepUp(false)
+        resumeCapture()   // restart behavioral capture
         addAlert('✅ Step-up authentication successful', 'info')
         showToast('Re-authentication successful!', 'success')
         fetchAlerts()
     }
 
+    // -----------------------------------------------------------------------
+    // Render
+    // -----------------------------------------------------------------------
     return (
         <div className="dashboard">
-            <div className="dashboard-grid">
+            {/* MONITOR warning banner */}
+            {isMonitoring && !showStepUp && (
+                <div className="monitor-banner" role="alert">
+                    ⚠️ Anomalous behaviour detected — monitoring session (trust score: {Math.round(trustScore)})
+                </div>
+            )}
+
+            {/* Main grid — pointer-events disabled while step-up is pending */}
+            <div className={`dashboard-grid ${showStepUp ? 'dashboard-locked' : ''}`}>
                 <TrustScoreCard
                     score={trustScore}
                     status={trustStatus}
@@ -158,7 +170,7 @@ function Dashboard() {
                     token={token}
                     sessionId={sessionId}
                     onSuccess={handleStepUpSuccess}
-                    onCancel={logout}   // cancel = forced logout (no trust = no access)
+                    onCancel={logout}
                 />
             )}
         </div>
