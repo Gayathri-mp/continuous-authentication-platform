@@ -1,18 +1,24 @@
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional
+
 from app.database import get_db
-from app.auth.session import validate_session, revoke_session
+from app.auth.session import validate_session, revoke_session, update_trust_score
 from app.events import schemas, models
 from app.events.processor import extract_features
 from app.trust.engine import compute_trust_score
 from app.trust.policy import evaluate_policy, PolicyAction
-from app.auth.session import update_trust_score
-from app.auth.models import SecurityAlert
+from app.auth.models import SecurityAlert, Session as SessionModel
+from app.config import settings
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/events", tags=["events"])
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _emit_alert(db: Session, session_id: str, alert_type: str, message: str,
                 severity: str, trust_score: float = None):
@@ -28,6 +34,39 @@ def _emit_alert(db: Session, session_id: str, alert_type: str, message: str,
     db.commit()
 
 
+def _enforce_stepup_timeout(db: Session, session: SessionModel) -> bool:
+    """
+    Check if an active step-up deadline has expired.
+    If it has, revoke the session and emit a TIMEOUT alert.
+    Returns True if session was terminated.
+    """
+    if session.stepup_deadline is None:
+        return False
+
+    deadline = session.stepup_deadline
+    # Make timezone-aware if needed
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+
+    if datetime.now(timezone.utc) > deadline:
+        _emit_alert(
+            db, session.id,
+            alert_type="STEPUP_TIMEOUT",
+            message=f"Step-up authentication not completed within {settings.STEPUP_TIMEOUT_SECONDS}s — session terminated",
+            severity="danger",
+            trust_score=session.trust_score
+        )
+        revoke_session(db, session.id)
+        logger.warning(f"Session {session.id} auto-terminated: step-up timeout")
+        return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
 @router.post("/batch", response_model=schemas.EventBatchResponse)
 async def submit_event_batch(
     batch: schemas.EventBatch,
@@ -36,9 +75,9 @@ async def submit_event_batch(
 ):
     """
     Submit a batch of behavioral events.
-    Returns policy action so the frontend can enforce step-up / termination immediately.
+    Runs the full pipeline: events → features → trust score → policy → enforcement.
+    Returns policy action so the frontend can immediately enforce step-up / termination.
     """
-    # Validate session
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
 
@@ -50,6 +89,10 @@ async def submit_event_batch(
 
     if session.id != batch.session_id:
         raise HTTPException(status_code=403, detail="Session ID mismatch")
+
+    # --- Check stepup timeout BEFORE accepting new events ---
+    if _enforce_stepup_timeout(db, session):
+        raise HTTPException(status_code=401, detail="Session terminated: step-up timeout exceeded")
 
     # Store events
     events_stored = 0
@@ -70,7 +113,7 @@ async def submit_event_batch(
         "events_count": events_stored
     })
 
-    # Extract features → compute trust score → evaluate policy
+    # --- Full pipeline: features → trust → policy ---
     try:
         features = extract_features(db, batch.session_id)
 
@@ -79,31 +122,52 @@ async def submit_event_batch(
             updated_session = update_trust_score(db, batch.session_id, trust_score)
 
             policy = evaluate_policy(trust_score, updated_session.status if updated_session else "OK")
+            action = policy["action"]
 
-            # --- Emit alerts based on policy ---
-            if policy["action"] == PolicyAction.STEPUP:
-                _emit_alert(db, batch.session_id,
-                            alert_type="STEPUP_REQUIRED",
-                            message=f"Trust score dropped to {trust_score:.1f} — step-up authentication required",
-                            severity="warning",
-                            trust_score=trust_score)
-
-            elif policy["action"] == PolicyAction.TERMINATE:
+            if action == PolicyAction.TERMINATE:
                 _emit_alert(db, batch.session_id,
                             alert_type="TERMINATED",
                             message=f"Session terminated — trust score critically low ({trust_score:.1f})",
                             severity="danger",
                             trust_score=trust_score)
-                # Enforce termination immediately
                 revoke_session(db, batch.session_id)
                 logger.warning(f"Session {batch.session_id} terminated by policy engine")
 
-            elif policy["action"] == PolicyAction.MONITOR:
+            elif action == PolicyAction.STEPUP:
+                # Only set deadline the first time (don't reset it on every batch)
+                fresh_session = db.query(SessionModel).filter(
+                    SessionModel.id == batch.session_id
+                ).first()
+                if fresh_session and fresh_session.stepup_deadline is None:
+                    deadline = datetime.now(timezone.utc) + timedelta(seconds=settings.STEPUP_TIMEOUT_SECONDS)
+                    fresh_session.stepup_deadline = deadline
+                    db.commit()
+                    logger.info(
+                        f"Step-up deadline set for session {batch.session_id}: "
+                        f"expires at {deadline.isoformat()}"
+                    )
+
+                _emit_alert(db, batch.session_id,
+                            alert_type="STEPUP_REQUIRED",
+                            message=f"Trust score dropped to {trust_score:.1f} — step-up required (30s timeout)",
+                            severity="warning",
+                            trust_score=trust_score)
+
+            elif action == PolicyAction.MONITOR:
                 _emit_alert(db, batch.session_id,
                             alert_type="TRUST_DROP",
                             message=f"Trust score entered monitoring range ({trust_score:.1f})",
                             severity="info",
                             trust_score=trust_score)
+
+            elif action == PolicyAction.CONTINUE:
+                # Clear any lingering stepup_deadline once trust recovers
+                fresh_session = db.query(SessionModel).filter(
+                    SessionModel.id == batch.session_id
+                ).first()
+                if fresh_session and fresh_session.stepup_deadline is not None:
+                    fresh_session.stepup_deadline = None
+                    db.commit()
 
             return schemas.EventBatchResponse(
                 success=True,
@@ -111,12 +175,14 @@ async def submit_event_batch(
                 events_processed=events_stored,
                 trust_score=trust_score,
                 status=updated_session.status if updated_session else None,
-                action=policy["action"],
+                action=action,
                 require_stepup=policy["require_stepup"]
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error processing events: {str(e)}")
+        logger.error(f"Error processing events for session {batch.session_id}: {str(e)}")
 
     return schemas.EventBatchResponse(
         success=True,
