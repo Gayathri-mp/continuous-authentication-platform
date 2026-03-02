@@ -2,10 +2,31 @@
     animation: fadeIn 0.5s ease-in-out;
 }
 
+/* Yellow warning banner shown in MONITOR state */
+.monitor-banner {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid var(--warning, #f59e0b);
+    border-radius: 0.5rem;
+    color: var(--warning, #f59e0b);
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding: 0.75rem 1.25rem;
+    margin-bottom: 1.25rem;
+    animation: slideIn 0.3s ease-in-out;
+}
+
 .dashboard-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1.5rem;
+}
+
+/* Lock the grid while step-up modal is active */
+.dashboard-grid.dashboard-locked {
+    pointer-events: none;
+    opacity: 0.45;
+    filter: blur(2px);
+    user-select: none;
 }
 
 @media (max-width: 768px) {
