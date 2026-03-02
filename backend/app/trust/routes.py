@@ -239,9 +239,10 @@ async def stepup_complete(
     # Clean up challenge from DB
     delete_challenge(db, f"stepup:{session.id}")
 
-    # Reset trust score
+    # Reset trust score and clear stepup deadline
     session.trust_score = 100.0
     session.status = "OK"
+    session.stepup_deadline = None  # clear so normal monitoring resumes
     db.commit()
 
     # Emit success alert
