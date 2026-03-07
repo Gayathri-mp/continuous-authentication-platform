@@ -181,7 +181,14 @@ async def stepup_complete(
 ):
     """
     Phase 2 of step-up authentication.
-    Verifies the WebAuthn credential, resets trust score to 100, emits STEPUP_SUCCESS alert.
+
+    Security guarantees:
+      - Validates the stored CBOR challenge bytes match what the authenticator signed
+      - Verifies the full WebAuthn assertion signature using the stored CBOR public key
+      - Enforces sign_count increment (prevents credential cloning / replay)
+      - On ANY verification failure: immediately terminates the session and returns 401
+
+    Trust score is only reset if ALL checks pass.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
@@ -198,14 +205,17 @@ async def stepup_complete(
     if session.id != request.session_id:
         raise HTTPException(status_code=403, detail="Session ID mismatch")
 
-    # Retrieve stored challenge from DB
+    # --- Retrieve stored challenge ---
     expected_challenge = get_challenge(db, f"stepup:{session.id}")
     if not expected_challenge:
-        raise HTTPException(status_code=400, detail="No step-up challenge found or it expired — begin step-up again")
+        raise HTTPException(
+            status_code=400,
+            detail="No step-up challenge found or it expired — call /trust/stepup/begin again"
+        )
 
-    # Verify credential against the stored challenge
-    credential = request.credential
-    credential_id = credential.get("id", "")
+    # --- Look up the credential submitted by the client ---
+    raw_credential = request.credential
+    credential_id = raw_credential.get("id", "")
 
     cred_record = db.query(Credential).filter(
         Credential.credential_id == credential_id,
@@ -213,43 +223,60 @@ async def stepup_complete(
     ).first()
 
     if not cred_record:
-        raise HTTPException(status_code=400, detail="Credential not associated with this user")
+        # Credential doesn't belong to this user — terminate immediately
+        logger.warning(
+            f"Step-up rejected for session {session.id}: credential {credential_id!r} "
+            f"not registered to user {session.user_id}"
+        )
+        _terminate_session_after_failed_stepup(db, session, "Credential not associated with this account")
+        raise HTTPException(status_code=401, detail="Step-up failed: credential not found for this user")
 
+    # --- Full WebAuthn assertion verification ---
     try:
+        from app.auth.webauthn_helpers import build_authentication_credential
+        parsed_credential = build_authentication_credential(raw_credential)
+
         verification = verify_authentication_response(
-            credential=credential,
+            credential=parsed_credential,
             expected_challenge=expected_challenge,
             expected_rp_id=settings.RP_ID,
             expected_origin=settings.RP_ORIGIN,
-            credential_public_key=json.loads(cred_record.public_key).get("publicKey", "").encode()
-                if isinstance(json.loads(cred_record.public_key).get("publicKey", ""), str)
-                else cred_record.public_key.encode(),
+            credential_public_key=bytes.fromhex(cred_record.public_key),
             credential_current_sign_count=cred_record.sign_count,
-            require_user_verification=True
+            require_user_verification=True,   # stricter for step-up
         )
-        # Update sign count to prevent replay attacks
+
+    except Exception as exc:
+        logger.warning(
+            f"Step-up WebAuthn verification FAILED for session {session.id}: {exc}"
+        )
+        # Always terminate — a failed step-up means the presenter cannot prove identity
+        _terminate_session_after_failed_stepup(db, session, f"WebAuthn verification failed: {exc}")
+        raise HTTPException(status_code=401, detail="Step-up authentication failed — session terminated")
+
+    # --- All checks passed: update sign_count, reset trust ---
+    try:
         cred_record.sign_count = verification.new_sign_count
+        cred_record.last_used = __import__("datetime").datetime.utcnow()
+
+        session.trust_score = 100.0
+        session.status = "OK"
+        session.stepup_deadline = None   # clear timeout, resume normal monitoring
         db.commit()
-    except Exception as e:
-        logger.warning(f"Step-up WebAuthn verification failed for session {session.id}: {str(e)}")
-        # Even if full CBOR verification fails (POC limitation), we still accept
-        # if the credential belongs to the right user — log the exception for audit
-        logger.info("Falling back to credential ownership check (POC mode)")
 
-    # Clean up challenge from DB
+    except Exception as exc:
+        db.rollback()
+        logger.error(f"DB update failed after successful step-up: {exc}")
+        raise HTTPException(status_code=500, detail="Internal error updating session")
+
+    # Clean up the consumed challenge
     delete_challenge(db, f"stepup:{session.id}")
-
-    # Reset trust score and clear stepup deadline
-    session.trust_score = 100.0
-    session.status = "OK"
-    session.stepup_deadline = None  # clear so normal monitoring resumes
-    db.commit()
 
     # Emit success alert
     alert = SecurityAlert(
         session_id=session.id,
         alert_type="STEPUP_SUCCESS",
-        message="Step-up authentication completed — trust score reset to 100",
+        message="Step-up authentication verified successfully — trust score reset to 100",
         severity="info",
         trust_score=100.0
     )
@@ -263,6 +290,32 @@ async def stepup_complete(
         "message": "Step-up authentication successful",
         "trust_score": 100.0
     }
+
+
+def _terminate_session_after_failed_stepup(
+    db: Session,
+    session: SessionModel,
+    reason: str
+) -> None:
+    """Immediately terminate session and emit a STEPUP_FAILED alert."""
+    try:
+        alert = SecurityAlert(
+            session_id=session.id,
+            alert_type="STEPUP_FAILED",
+            message=f"Step-up authentication failed — session terminated. Reason: {reason}",
+            severity="danger",
+            trust_score=session.trust_score
+        )
+        db.add(alert)
+        # Revoke session
+        session.is_active = False
+        session.status = "TERMINATED"
+        session.stepup_deadline = None
+        db.commit()
+        logger.warning(f"Session {session.id} terminated after failed step-up: {reason}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to terminate session {session.id}: {e}")
 
 
 # -------------------------------------------------------------------------
