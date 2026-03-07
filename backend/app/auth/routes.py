@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import Optional
 import json
-import base64
 
 from webauthn import (
     generate_registration_options,
@@ -15,7 +14,7 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     UserVerificationRequirement,
     AuthenticatorSelectionCriteria,
-    ResidentKeyRequirement
+    ResidentKeyRequirement,
 )
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
@@ -26,14 +25,15 @@ from app.auth.session import (
     create_session, validate_session, revoke_session,
     set_challenge, get_challenge, delete_challenge
 )
+from app.auth.webauthn_helpers import build_registration_credential, build_authentication_credential, b64url_decode
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-# -------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Registration
-# -------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 @router.post("/register/begin", response_model=schemas.RegistrationBeginResponse)
 async def register_begin(
@@ -78,14 +78,31 @@ async def register_complete(
     request: schemas.RegistrationCompleteRequest,
     db: Session = Depends(get_db)
 ):
-    """Complete WebAuthn registration process."""
+    """
+    Complete WebAuthn registration.
+    Verifies the attestation, stores the CBOR-encoded public key bytes (hex)
+    so that future authentications and step-ups can perform full signature verification.
+    """
     challenge = get_challenge(db, f"reg:{request.username}")
     if not challenge:
         raise HTTPException(status_code=400, detail="No registration in progress or challenge expired")
 
     try:
-        credential = request.credential
+        raw_credential = request.credential
+        parsed_credential = build_registration_credential(raw_credential)
 
+        verification = verify_registration_response(
+            credential=parsed_credential,
+            expected_challenge=challenge,
+            expected_rp_id=settings.RP_ID,
+            expected_origin=settings.RP_ORIGIN,
+        )
+
+    except Exception as e:
+        logger.error(f"Registration verification failed for {request.username}: {e}")
+        raise HTTPException(status_code=400, detail=f"WebAuthn registration verification failed: {e}")
+
+    try:
         user = models.User(
             username=request.username,
             display_name=request.username
@@ -95,9 +112,11 @@ async def register_complete(
 
         credential_record = models.Credential(
             user_id=user.id,
-            credential_id=credential.get("id", ""),
-            public_key=json.dumps(credential.get("response", {})),
-            sign_count=0
+            # credential_id stored as base64url string (matches what browser sends back)
+            credential_id=raw_credential.get("id", ""),
+            # CBOR public key bytes stored as hex — used for signature verification
+            public_key=verification.credential_public_key.hex(),
+            sign_count=verification.sign_count,
         )
         db.add(credential_record)
         db.commit()
@@ -113,13 +132,13 @@ async def register_complete(
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Registration failed: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Registration failed: {str(e)}")
+        logger.error(f"Registration DB write failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Registration failed: {e}")
 
 
-# -------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Login
-# -------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 @router.post("/login/begin", response_model=schemas.AuthenticationBeginResponse)
 async def login_begin(
@@ -142,7 +161,7 @@ async def login_begin(
         raise HTTPException(status_code=400, detail="No credentials registered")
 
     allow_credentials = [
-        PublicKeyCredentialDescriptor(id=cred.credential_id.encode("utf-8"))
+        PublicKeyCredentialDescriptor(id=b64url_decode(cred.credential_id))
         for cred in credentials
     ]
 
@@ -168,8 +187,8 @@ async def login_complete(
 ):
     """Complete WebAuthn authentication process."""
     try:
-        credential = request.credential
-        credential_id = credential.get("id", "")
+        raw_credential = request.credential
+        credential_id = raw_credential.get("id", "")
 
         cred_record = db.query(models.Credential).filter(
             models.Credential.credential_id == credential_id
@@ -181,6 +200,33 @@ async def login_complete(
         user = db.query(models.User).filter(
             models.User.id == cred_record.user_id
         ).first()
+
+        if not user:
+            raise HTTPException(status_code=400, detail="User not found")
+
+        # Look up the challenge we issued at login/begin
+        challenge = get_challenge(db, f"auth:{user.username}")
+        if not challenge:
+            raise HTTPException(status_code=400, detail="No login in progress or challenge expired")
+
+        parsed_credential = build_authentication_credential(raw_credential)
+
+        verification = verify_authentication_response(
+            credential=parsed_credential,
+            expected_challenge=challenge,
+            expected_rp_id=settings.RP_ID,
+            expected_origin=settings.RP_ORIGIN,
+            credential_public_key=bytes.fromhex(cred_record.public_key),
+            credential_current_sign_count=cred_record.sign_count,
+            require_user_verification=False,  # PREFERRED during login
+        )
+
+        # Update sign count (replay-attack protection)
+        cred_record.sign_count = verification.new_sign_count
+        cred_record.last_used = __import__("datetime").datetime.utcnow()
+        db.commit()
+
+        delete_challenge(db, f"auth:{user.username}")
 
         session = create_session(db, user.id)
         logger.info(f"Authentication completed for user: {user.username}")
@@ -196,13 +242,13 @@ async def login_complete(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Authentication failed: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
+        logger.error(f"Authentication failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Authentication failed: {e}")
 
 
-# -------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Session management
-# -------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 @router.post("/logout")
 async def logout(
