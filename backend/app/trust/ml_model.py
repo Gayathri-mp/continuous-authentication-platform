@@ -109,10 +109,3 @@ class TrustModel:
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
             return False
-
-
-# Global model instance
-trust_model = TrustModel()
-
-# Try to load existing model
-trust_model.load(settings.MODEL_PATH)
