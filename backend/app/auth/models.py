@@ -19,6 +19,7 @@ class User(Base):
     # Relationships
     credentials = relationship("Credential", back_populates="user", cascade="all, delete-orphan")
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
+    baseline = relationship("UserBaseline", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
 class Credential(Base):
@@ -90,3 +91,22 @@ class AuthChallenge(Base):
     username   = Column(String, nullable=False, index=True)   # namespaced key
     challenge  = Column(Text, nullable=False)                 # hex-encoded bytes
     expires_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class UserBaseline(Base):
+    """
+    Stores the path to a user's personal Isolation Forest model file.
+    A row is created / updated after the user completes MIN_SESSIONS_TO_TRAIN
+    normal (non-terminated) sessions that together contain enough feature vectors.
+    """
+    __tablename__ = "user_baselines"
+
+    id              = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id         = Column(String, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    model_path      = Column(String, nullable=False)   # absolute path to .pkl file
+    sessions_used   = Column(Integer, nullable=False, default=0)  # sessions seen at training time
+    vectors_used    = Column(Integer, nullable=False, default=0)  # data points used to train
+    last_trained_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", back_populates="baseline")
