@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: list = ["http://localhost:8080", "http://127.0.0.1:8080"]
+
+    # Demo mode — lower ML training bar so impersonation demo works out of the box
+    DEMO_MODE: bool = True
+    DEMO_MIN_SESSIONS: int = 1  # train model after just 1 session in demo mode
+    DEMO_MIN_VECTORS: int = 5   # minimum vectors to start training in demo mode
     
     class Config:
         env_file = ".env"
