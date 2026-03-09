@@ -7,6 +7,9 @@ from app.events.routes import router as events_router
 from app.trust.routes import router as trust_router
 from app.utils.logger import logger
 
+if settings.DEMO_MODE:
+    from app.demo.routes import router as demo_router
+
 app = FastAPI(
     title="Adaptive Continuous Authentication Platform",
     description="Passwordless authentication with behavioral monitoring and per-user ML-based trust scoring",
@@ -25,6 +28,10 @@ app.include_router(auth_router)
 app.include_router(events_router)
 app.include_router(trust_router)
 
+if settings.DEMO_MODE:
+    app.include_router(demo_router)
+    logger.info("Demo mode enabled — /demo/* routes active")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -35,6 +42,16 @@ async def startup_event():
         logger.info("Database initialized successfully")
     except Exception as e:
         logger.error(f"Database initialization failed: {str(e)}")
+
+    if settings.DEMO_MODE:
+        # Apply demo-mode ML thresholds at startup so engine.py picks them up
+        import app.trust.engine as _eng
+        _eng.MIN_SESSIONS_TO_TRAIN = settings.DEMO_MIN_SESSIONS
+        _eng.MIN_VECTORS_TO_TRAIN  = settings.DEMO_MIN_VECTORS
+        logger.info(
+            f"Demo mode: ML trains after {settings.DEMO_MIN_SESSIONS} session(s) "
+            f"with {settings.DEMO_MIN_VECTORS}+ vectors"
+        )
 
     # Per-user models are trained lazily on first scoring — no bootstrap needed.
     logger.info(
