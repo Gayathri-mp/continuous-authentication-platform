@@ -298,7 +298,12 @@ def compute_trust_score(
 
 
 def _compute_baseline_score(features: FeatureVector) -> float:
-    """Rule-based heuristics — always applied, never alone enough to terminate."""
+    """Rule-based heuristics — always applied, never alone enough to terminate.
+    
+    Inactivity (low event counts) is treated NEUTRALLY — idle users are not
+    penalised. Only clear anomalies (robot-speed typing, extreme mouse speed,
+    suspiciously uniform timing) are flagged.
+    """
     score = 100.0
 
     if features.typing_speed and features.typing_speed > 15:
@@ -312,13 +317,6 @@ def _compute_baseline_score(features: FeatureVector) -> float:
     if features.avg_mouse_speed and features.avg_mouse_speed > 5000:
         score -= 15
         logger.warning(f"Suspicious mouse speed: {features.avg_mouse_speed:.0f} px/s")
-
-    if features.total_events < 5:
-        score -= 10
-
-    if features.keystroke_count == 0 and features.total_events > 20:
-        score -= 10
-        logger.warning("No keystrokes in high-event batch (possible bot)")
 
     if features.avg_key_hold_time:
         if features.avg_key_hold_time < 0.03 or features.avg_key_hold_time > 0.5:
