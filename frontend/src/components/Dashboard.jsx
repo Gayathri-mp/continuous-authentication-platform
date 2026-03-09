@@ -23,7 +23,7 @@ function Dashboard() {
     const [sessionInfo, setSessionInfo] = useState(null)
     const [alerts, setAlerts] = useState([])
 
-    const { stats, updateTrustScore, pauseCapture, resumeCapture } = useBehavioralCapture(token, sessionId)
+    const { stats, updateTrustScore, isIdle, pauseCapture, resumeCapture } = useBehavioralCapture(token, sessionId)
 
     // -----------------------------------------------------------------------
     // Derived state
@@ -144,6 +144,13 @@ function Dashboard() {
             {isMonitoring && !showStepUp && (
                 <div className="monitor-banner" role="alert">
                     ⚠️ Anomalous behaviour detected — monitoring session (trust score: {Math.round(trustScore)})
+                    {isIdle && <span className="idle-badge"> · 💤 Idle</span>}
+                </div>
+            )}
+            {/* Idle-only indicator (only show when not in MONITOR/STEPUP) */}
+            {isIdle && !isMonitoring && !showStepUp && (
+                <div className="idle-banner" role="status">
+                    💤 Session idle — behavioral capture paused until you interact
                 </div>
             )}
 
