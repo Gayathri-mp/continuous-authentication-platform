@@ -51,7 +51,7 @@ async def register_begin(
     options = generate_registration_options(
         rp_id=settings.RP_ID,
         rp_name=settings.RP_NAME,
-        user_id=request.username,
+        user_id=request.username.encode("utf-8"),
         user_name=request.username,
         user_display_name=request.username,
         authenticator_selection=AuthenticatorSelectionCriteria(
@@ -99,7 +99,9 @@ async def register_complete(
         )
 
     except Exception as e:
-        logger.error(f"Registration verification failed for {request.username}: {e}")
+        logger.error(f"Registration verification failed for {request.username}. Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=400, detail=f"WebAuthn registration verification failed: {e}")
 
     try:
@@ -151,7 +153,8 @@ async def login_begin(
     ).first()
 
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        logger.warning(f"Login failed: User '{request.username}' not found in database.")
+        raise HTTPException(status_code=404, detail=f"User '{request.username}' not found. Please register first.")
 
     credentials = db.query(models.Credential).filter(
         models.Credential.user_id == user.id

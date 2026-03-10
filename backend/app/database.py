@@ -43,4 +43,7 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db():
     """Initialize database by creating all tables."""
+    # Import all models here so they are registered with Base metadata
+    import app.auth.models
+    import app.events.models
     Base.metadata.create_all(bind=engine)
