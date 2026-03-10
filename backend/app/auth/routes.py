@@ -51,7 +51,7 @@ async def register_begin(
     options = generate_registration_options(
         rp_id=settings.RP_ID,
         rp_name=settings.RP_NAME,
-        user_id=request.username.encode("utf-8"),
+        user_id=request.username,
         user_name=request.username,
         user_display_name=request.username,
         authenticator_selection=AuthenticatorSelectionCriteria(
@@ -142,45 +142,37 @@ async def register_complete(
 # Login
 # ---------------------------------------------------------------------------
 
-@router.post("/login/begin", response_model=schemas.AuthenticationBeginResponse)
-async def login_begin(
+@router.post("/demo/login", response_model=schemas.AuthenticationCompleteResponse)
+async def demo_login(
     request: schemas.AuthenticationBeginRequest,
     db: Session = Depends(get_db)
 ):
-    """Begin WebAuthn authentication process."""
+    """Bypass WebAuthn for demo/testing purposes."""
+    if not settings.DEMO_MODE:
+        raise HTTPException(status_code=403, detail="Demo login only available in DEMO_MODE")
+        
     user = db.query(models.User).filter(
         models.User.username == request.username
     ).first()
 
     if not user:
-        logger.warning(f"Login failed: User '{request.username}' not found in database.")
-        raise HTTPException(status_code=404, detail=f"User '{request.username}' not found. Please register first.")
+        # Create user on the fly if it doesn't exist in demo mode
+        user = models.User(username=request.username, display_name=request.username)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        logger.info(f"Demo Mode: Created user {request.username} on the fly")
 
-    credentials = db.query(models.Credential).filter(
-        models.Credential.user_id == user.id
-    ).all()
+    session = create_session(db, user.id)
+    logger.info(f"Demo login successful for user: {user.username}")
 
-    if not credentials:
-        raise HTTPException(status_code=400, detail="No credentials registered")
-
-    allow_credentials = [
-        PublicKeyCredentialDescriptor(id=b64url_decode(cred.credential_id))
-        for cred in credentials
-    ]
-
-    options = generate_authentication_options(
-        rp_id=settings.RP_ID,
-        allow_credentials=allow_credentials,
-        user_verification=UserVerificationRequirement.PREFERRED
+    return schemas.AuthenticationCompleteResponse(
+        success=True,
+        message="Demo login successful",
+        token=session.token,
+        session_id=session.id,
+        expires_at=session.expires_at
     )
-
-    # Store challenge in DB (namespaced with "auth:" prefix)
-    set_challenge(db, f"auth:{request.username}", options.challenge)
-
-    options_json = json.loads(options_to_json(options))
-    logger.info(f"Authentication started for user: {request.username}")
-
-    return schemas.AuthenticationBeginResponse(options=options_json)
 
 
 @router.post("/login/complete", response_model=schemas.AuthenticationCompleteResponse)
@@ -246,7 +238,9 @@ async def login_complete(
         raise
     except Exception as e:
         logger.error(f"Authentication failed: {e}")
-        raise HTTPException(status_code=400, detail=f"Authentication failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 
 
 # ---------------------------------------------------------------------------

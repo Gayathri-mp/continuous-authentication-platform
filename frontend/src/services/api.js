@@ -69,6 +69,11 @@ export const authAPI = {
         return response.data
     },
 
+    async demoLogin(username) {
+        const response = await api.post('/auth/demo/login', { username })
+        return response.data
+    },
+
     async logout(token) {
         const response = await api.post('/auth/logout', {}, {
             headers: { Authorization: `Bearer ${token}` }

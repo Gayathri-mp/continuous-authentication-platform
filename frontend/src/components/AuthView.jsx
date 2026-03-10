@@ -56,7 +56,8 @@ function AuthView() {
 
         } catch (error) {
             console.error('Registration error:', error)
-            showToast(`Registration failed: ${error.message}`, 'error')
+            const detail = error.response?.data?.detail || error.message
+            showToast(`Registration failed: ${detail}`, 'error')
         } finally {
             setLoading(false)
         }
@@ -115,7 +116,28 @@ function AuthView() {
 
         } catch (error) {
             console.error('Login error:', error)
-            showToast(`Login failed: ${error.message}`, 'error')
+            const detail = error.response?.data?.detail || error.message
+            showToast(`Login failed: ${detail}`, 'error')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handleDemoLogin = async () => {
+        const username = loginUsername || registerUsername || 'demo_user'
+        setLoading(true)
+        try {
+            showToast('Starting demo bypass...', 'success')
+            const result = await authAPI.demoLogin(username)
+            showToast('Demo access granted!', 'success')
+            await login(result.token, {
+                session_id: result.session_id,
+                username: username
+            })
+        } catch (error) {
+            console.error('Demo login error:', error)
+            const detail = error.response?.data?.detail || error.message
+            showToast(`Demo login failed: ${detail}`, 'error')
         } finally {
             setLoading(false)
         }
@@ -159,10 +181,18 @@ function AuthView() {
                             />
                         </div>
                         <button type="submit" className="btn btn-primary" disabled={loading}>
-                            LOGIN
-                            {loading ? 'Logging in...' : 'Login with WebAuthn'}
+                            {loading ? 'Logging in...' : 'LOGIN WITH WEBAUTHN'}
                         </button>
-                        <p className="help-text">Use your security key or biometric authentication</p>
+                        <button 
+                            type="button" 
+                            className="btn btn-secondary" 
+                            style={{ marginTop: '1rem', border: '1px dashed var(--primary-color)', opacity: 0.8 }}
+                            onClick={handleDemoLogin}
+                            disabled={loading}
+                        >
+                            BYPASS FOR DEMO
+                        </button>
+                        <p className="help-text">Use security key or use bypass for development testing</p>
                     </form>
                 ) : (
                     <form onSubmit={handleRegister} className="tab-content">
