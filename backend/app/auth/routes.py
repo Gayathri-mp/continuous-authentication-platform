@@ -51,7 +51,7 @@ async def register_begin(
     options = generate_registration_options(
         rp_id=settings.RP_ID,
         rp_name=settings.RP_NAME,
-        user_id=request.username.encode("utf-8"),
+        user_id=request.username,
         user_name=request.username,
         user_display_name=request.username,
         authenticator_selection=AuthenticatorSelectionCriteria(
