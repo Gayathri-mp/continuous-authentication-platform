@@ -9,11 +9,11 @@
     max-width: 500px;
     width: 100%;
     padding: 3rem;
-    background: rgba(30, 41, 59, 0.8);
-    backdrop-filter: blur(20px);
+    background: rgba(10, 26, 10, 0.92);
+    backdrop-filter: blur(24px);
     border-radius: 1.5rem;
-    box-shadow: var(--shadow-xl);
-    border: 1px solid var(--border);
+    box-shadow: var(--shadow-xl), var(--glow-green);
+    border: 1px solid var(--primary-dark);
     animation: fadeIn 0.5s ease-in-out;
 }
 
@@ -29,6 +29,7 @@
 .subtitle {
     color: var(--text-muted);
     margin-bottom: 2rem;
+    font-size: 0.9rem;
 }
 
 .auth-tabs {
@@ -38,6 +39,7 @@
     background: var(--dark-lighter);
     padding: 0.25rem;
     border-radius: 0.75rem;
+    border: 1px solid var(--border);
 }
 
 .tab-btn {
@@ -54,11 +56,13 @@
 
 .tab-btn.active {
     background: var(--gradient-primary);
-    color: white;
+    color: #050d05;
+    box-shadow: var(--glow-green);
 }
 
 .tab-btn:hover:not(.active) {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(0, 200, 83, 0.08);
+    color: var(--primary-light);
 }
 
 .tab-content {
@@ -74,6 +78,8 @@
     margin-bottom: 0.5rem;
     font-weight: 600;
     color: var(--text);
+    font-size: 0.9rem;
+    letter-spacing: 0.03em;
 }
 
 .form-group input {
@@ -90,11 +96,11 @@
 .form-group input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    box-shadow: 0 0 0 3px rgba(0, 200, 83, 0.15), var(--glow-green);
 }
 
 .form-group input:disabled {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: not-allowed;
 }
 
@@ -106,37 +112,38 @@
     padding: 0.875rem 1.5rem;
     border: none;
     border-radius: 0.5rem;
-    font-weight: 600;
+    font-weight: 700;
     font-size: 1rem;
     cursor: pointer;
     transition: var(--transition);
     width: 100%;
+    letter-spacing: 0.04em;
 }
 
 .btn-primary {
     background: var(--gradient-primary);
-    color: white;
-    box-shadow: var(--shadow-md);
+    color: #050d05;
+    box-shadow: var(--shadow-md), var(--glow-green);
 }
 
 .btn-primary:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-lg), 0 0 20px rgba(0, 200, 83, 0.7);
 }
 
 .btn-primary:disabled {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: not-allowed;
     transform: none;
 }
 
 .btn-icon {
-    font-size: 1.25rem;
+    font-size: 1.1rem;
 }
 
 .help-text {
     margin-top: 1rem;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     color: var(--text-muted);
     text-align: center;
 }

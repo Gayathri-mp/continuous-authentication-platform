@@ -2,12 +2,12 @@ import { useEffect, useRef } from 'react'
 import './TrustScoreCard.css'
 
 const STATUS_CONFIG = {
-    OK:          { label: '✅ All systems normal',              color: '#10b981', ring: 'success' },
-    MONITOR:     { label: '⚠️ Monitoring — anomaly detected',   color: '#f59e0b', ring: 'warning' },
-    SUSPICIOUS:  { label: '🚨 Suspicious — re-auth required',   color: '#ef4444', ring: 'danger'  },
-    CRITICAL:    { label: '🔴 Critical — session at risk',       color: '#ef4444', ring: 'danger'  },
-    TERMINATED:  { label: '⛔ Session terminated',               color: '#7f1d1d', ring: 'danger'  },
-    EXPIRED:     { label: '⏱️ Session expired',                 color: '#64748b', ring: ''        },
+    OK:          { label: 'All systems normal',             color: '#00c853', ring: 'success' },
+    MONITOR:     { label: 'Monitoring — anomaly detected',  color: '#ffd600', ring: 'warning' },
+    SUSPICIOUS:  { label: 'Suspicious — re-auth required',  color: '#ff1744', ring: 'danger'  },
+    CRITICAL:    { label: 'Critical — session at risk',     color: '#ff1744', ring: 'danger'  },
+    TERMINATED:  { label: 'Session terminated',             color: '#7f1d1d', ring: 'danger'  },
+    EXPIRED:     { label: 'Session expired',                color: '#64748b', ring: ''        },
 }
 
 const scoreClass = (s) => s < 20 ? 'danger' : s < 40 ? 'danger' : s < 70 ? 'warning' : 'success'
@@ -37,7 +37,7 @@ function TrustScoreCard({ score, status, onRefresh }) {
             <div className="card-header">
                 <h3>Trust Score</h3>
                 <button className="btn-icon-only" onClick={onRefresh} title="Refresh trust score">
-                    🔄
+                    Refresh
                 </button>
             </div>
 

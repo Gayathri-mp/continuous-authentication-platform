@@ -43,7 +43,7 @@ function Dashboard() {
     }, [])
 
     const handleTerminate = useCallback(() => {
-        addAlert('⛔ Session terminated by security policy', 'danger')
+        addAlert('Session terminated by security policy', 'danger')
         showToast('Session terminated — logging out in 4 seconds', 'error')
         setTimeout(() => logout(), TERMINATE_DELAY_MS)
     }, [addAlert, showToast, logout])
@@ -58,11 +58,11 @@ function Dashboard() {
             if (!showStepUp) {
                 setShowStepUp(true)
                 pauseCapture()  // pause event collection while step-up is pending
-                addAlert('⚠️ Suspicious behaviour — step-up authentication required', 'warning')
+                addAlert('Suspicious behaviour detected — step-up authentication required', 'warning')
                 showToast('Re-authentication required (30s timeout)', 'warning')
             }
         } else if (action === 'monitor') {
-            addAlert(`📊 Trust score in monitoring range (${Math.round(score)})`, 'info')
+            addAlert(`Trust score in monitoring range (${Math.round(score)})`, 'info')
         }
     }, [showStepUp, handleTerminate, pauseCapture, addAlert, showToast])
 
@@ -130,7 +130,7 @@ function Dashboard() {
         setTrustStatus('OK')
         setShowStepUp(false)
         resumeCapture()   // restart behavioral capture
-        addAlert('✅ Step-up authentication successful', 'info')
+        addAlert('Step-up authentication successful', 'info')
         showToast('Re-authentication successful!', 'success')
         fetchAlerts()
     }
@@ -143,14 +143,14 @@ function Dashboard() {
             {/* MONITOR warning banner */}
             {isMonitoring && !showStepUp && (
                 <div className="monitor-banner" role="alert">
-                    ⚠️ Anomalous behaviour detected — monitoring session (trust score: {Math.round(trustScore)})
-                    {isIdle && <span className="idle-badge"> · 💤 Idle</span>}
+                    Anomalous behaviour detected — monitoring session (trust score: {Math.round(trustScore)})
+                    {isIdle && <span className="idle-badge"> · Idle</span>}
                 </div>
             )}
             {/* Idle-only indicator (only show when not in MONITOR/STEPUP) */}
             {isIdle && !isMonitoring && !showStepUp && (
                 <div className="idle-banner" role="status">
-                    💤 Session idle — behavioral capture paused until you interact
+                    Session idle — behavioral capture paused until you interact
                 </div>
             )}
 
