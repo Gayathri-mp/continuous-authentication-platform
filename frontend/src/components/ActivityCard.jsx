@@ -8,21 +8,21 @@ function ActivityCard({ stats }) {
             </div>
             <div className="activity-stats">
                 <div className="stat-item">
-                    <div className="stat-icon">⌨️</div>
+                    <div className="stat-icon">KB</div>
                     <div className="stat-content">
                         <div className="stat-value">{stats.keystrokeCount}</div>
                         <div className="stat-label">Keystrokes</div>
                     </div>
                 </div>
                 <div className="stat-item">
-                    <div className="stat-icon">🖱️</div>
+                    <div className="stat-icon">MS</div>
                     <div className="stat-content">
                         <div className="stat-value">{stats.mouseCount}</div>
                         <div className="stat-label">Mouse Events</div>
                     </div>
                 </div>
                 <div className="stat-item">
-                    <div className="stat-icon">📊</div>
+                    <div className="stat-icon">BT</div>
                     <div className="stat-content">
                         <div className="stat-value">{stats.batchesSent}</div>
                         <div className="stat-label">Batches Sent</div>

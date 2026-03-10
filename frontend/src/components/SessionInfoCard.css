@@ -1,39 +1,46 @@
 .session-info {
-    margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 2rem;
 }
 
 .info-row {
     display: flex;
     justify-content: space-between;
-    padding: 0.75rem 0;
-    border-bottom: 1px solid var(--border);
-}
-
-.info-row:last-child {
-    border-bottom: none;
+    align-items: center;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--dark-lighter);
 }
 
 .info-label {
-    color: var(--text-muted);
-    font-weight: 600;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--primary-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
 }
 
 .info-value {
-    color: var(--text);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--primary-light);
 }
 
 .mono {
-    font-family: 'Courier New', monospace;
-    font-size: 0.875rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--primary);
 }
 
+/* Red-hacked Logout Button */
 .btn-secondary {
-    background: var(--dark-lighter);
-    color: var(--text);
-    border: 1px solid var(--border);
-    width: 100%;
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
 }
 
-.btn-secondary:hover {
-    background: var(--dark-light);
+.btn-secondary:hover:not(:disabled) {
+    background: rgba(255, 0, 60, 0.1);
+    box-shadow: 0 0 10px rgba(255, 0, 60, 0.3);
 }

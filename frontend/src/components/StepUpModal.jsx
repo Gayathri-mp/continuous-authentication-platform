@@ -81,7 +81,7 @@ function StepUpModal({ trustScore, token, sessionId, onSuccess, onCancel }) {
                         onClick={handleAuth}
                         disabled={loading}
                     >
-                        {loading ? '🔐 Waiting for authenticator…' : '🔐 Authenticate Now'}
+                        {loading ? 'Waiting for authenticator...' : 'Authenticate Now'}
                     </button>
                     <button
                         className="btn btn-secondary"

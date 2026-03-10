@@ -159,7 +159,7 @@ function AuthView() {
                             />
                         </div>
                         <button type="submit" className="btn btn-primary" disabled={loading}>
-                            <span className="btn-icon">🔑</span>
+                            LOGIN
                             {loading ? 'Logging in...' : 'Login with WebAuthn'}
                         </button>
                         <p className="help-text">Use your security key or biometric authentication</p>
@@ -179,7 +179,7 @@ function AuthView() {
                             />
                         </div>
                         <button type="submit" className="btn btn-primary" disabled={loading}>
-                            <span className="btn-icon">✨</span>
+                            REGISTER
                             {loading ? 'Registering...' : 'Register with WebAuthn'}
                         </button>
                         <p className="help-text">Register your security key or biometric device</p>

@@ -2,32 +2,31 @@
     position: fixed;
     bottom: 2rem;
     right: 2rem;
-    padding: 1rem 1.5rem;
-    background: var(--dark-light);
-    border-radius: 0.75rem;
-    box-shadow: var(--shadow-xl);
-    border: 1px solid var(--border);
+    padding: 1rem 2rem;
+    background: var(--black);
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    font-size: 0.85rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    box-shadow: var(--glow-strong);
     z-index: 2000;
-    animation: slideUp 0.3s ease-in-out;
-    max-width: 400px;
+    display: none;
 }
 
-.toast.success {
-    border-color: var(--success);
-    background: rgba(16, 185, 129, 0.1);
-    color: var(--success);
+.toast.active {
+    display: block;
+    animation: slideUp 0.3s ease-out;
 }
 
 .toast.error {
     border-color: var(--danger);
-    background: rgba(239, 68, 68, 0.1);
     color: var(--danger);
+    box-shadow: 0 0 20px rgba(255, 0, 60, 0.4);
 }
 
-@media (max-width: 768px) {
-    .toast {
-        left: 1rem;
-        right: 1rem;
-        bottom: 1rem;
-    }
+.toast.warning {
+    border-color: var(--warning);
+    color: var(--warning);
 }
