@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     """Application configuration settings."""
     
     # Database
-    DATABASE_URL: str = "postgresql://authuser:authpass@localhost:5432/authdb"
+    DATABASE_URL: str = "sqlite:///./auth.db"
     
     # JWT Settings
     JWT_SECRET: str = "dev-secret-key-change-in-production"
