@@ -30,8 +30,16 @@
       bgPort = chrome.runtime.connect({ name: 'yc-keepalive' });
       bgPort.onDisconnect.addListener(() => {
         bgPort = null;
-        // Reconnect after a short delay (e.g. extension update or worker crash)
         setTimeout(connectPort, 2000);
+      });
+      // Listen for messages pushed FROM background → content (bidirectional port)
+      bgPort.onMessage.addListener((message) => {
+        if (message.type === 'TRUST_UPDATE' && message.score !== undefined) {
+          updateBorder(message.score);
+        }
+        if (message.type === 'FORCE_LOGOUT') {
+          showForceLogoutOverlay();
+        }
       });
     } catch (_) {}
   }
@@ -217,6 +225,25 @@
       chrome.runtime.sendMessage({ type: 'YC_LOGIN', token: e.newValue }).catch(() => {});
     } else {
       chrome.runtime.sendMessage({ type: 'YC_LOGOUT' }).catch(() => {});
+    }
+  });
+
+  // ─── Bridge: page → extension (window.postMessage → background) ───────────
+  // The React app cannot call chrome.runtime.sendMessage directly (no externally_connectable).
+  // Instead it uses window.postMessage. This content script (which HAS extension access)
+  // receives those messages and forwards them to the background service worker.
+  window.addEventListener('message', (event) => {
+    // Only accept messages from the same window (the platform page)
+    if (event.source !== window) return;
+    const msg = event.data;
+    if (!msg || typeof msg.type !== 'string') return;
+
+    if (msg.type === 'YC_FORCE_LOGOUT_REQUEST') {
+      console.log('[YC-CS] Received YC_FORCE_LOGOUT_REQUEST — forwarding to background');
+      chrome.runtime.sendMessage({ type: 'YC_FORCE_LOGOUT' }).catch(() => {});
+    }
+    if (msg.type === 'YC_LOGIN' && msg.token) {
+      chrome.runtime.sendMessage({ type: 'YC_LOGIN', token: msg.token }).catch(() => {});
     }
   });
 

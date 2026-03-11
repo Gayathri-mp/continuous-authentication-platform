@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { trustAPI, authAPI, eventsAPI } from '../services/api'
+import api from '../services/api'
 import { useToast } from '../hooks/useToast'
 import TrustScoreCard from './TrustScoreCard'
 import SessionInfoCard from './SessionInfoCard'
@@ -64,7 +65,7 @@ function Dashboard() {
             id: Date.now(),
             message,
             type,
-            timestamp: new Date().toLocaleTimeString()
+            timestamp: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         }, ...prev].slice(0, 20))
     }, [])
 
@@ -113,7 +114,12 @@ function Dashboard() {
                 id: a.id,
                 message: a.message,
                 type: a.severity,
-                timestamp: new Date(a.created_at).toLocaleTimeString()
+                timestamp: (() => {
+                    const utcStr = /[Z+\-]\d{2}:?\d{2}$|Z$/.test(a.created_at)
+                        ? a.created_at
+                        : a.created_at + 'Z'
+                    return new Date(utcStr).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                })()
             }))
             setAlerts(mapped)
         } catch (_) { /* supplementary — silently ignore */ }
@@ -171,7 +177,7 @@ function Dashboard() {
     // Demo: Simulate Attack
     // -----------------------------------------------------------------------
     const [attackStatus, setAttackStatus] = useState(null)  // null | 'running' | 'done'
-    const [attackWave,   setAttackWave]   = useState(0)     // 1-3
+    const [attackWave,   setAttackWave]   = useState(0)     // 1-4 (3 waves + final terminate)
 
     const simulateAttack = useCallback(async () => {
         if (attackStatus === 'running') return
@@ -179,49 +185,98 @@ function Dashboard() {
         setAttackWave(0)
         addAlert('⚠️ Demo: Simulated attack initiated', 'warning')
 
-        // Build a batch of robot-like events (inhuman rhythm + mouse teleports)
-        const buildBatch = (size, speed) =>
-            Array.from({ length: size }, (_, i) => [
-                {
-                    type: 'keystroke', key: 'a', action: 'down',
-                    timestamp: Date.now() / 1000 + i * speed,
-                },
-                {
-                    type: 'keystroke', key: 'a', action: 'up',
-                    timestamp: Date.now() / 1000 + i * speed + speed / 2,
-                },
-                {
-                    type: 'mouse', x: i % 2 === 0 ? 0 : 1920, y: i % 2 === 0 ? 0 : 1080,
-                    action: 'move',
-                    timestamp: Date.now() / 1000 + i * speed + speed / 4,
-                },
-            ]).flat()
-
-        const waves = [
-            { label: 'Wave 1 — Mild anomaly',    size: 40,  speed: 0.015 },
-            { label: 'Wave 2 — Moderate attack', size: 60,  speed: 0.008 },
-            { label: 'Wave 3 — Severe bot burst', size: 80, speed: 0.004 },
-        ]
-
         try {
-            for (let i = 0; i < waves.length; i++) {
-                const w = waves[i]
+            // Waves 1-3: call /demo/simulate-attack — runs the real ML pipeline
+            // Each call injects robot-like events and re-scores, driving the
+            // trust score progressively lower.
+            const waveLabels = [
+                'Wave 1 — Mild anomaly',
+                'Wave 2 — Moderate attack',
+                'Wave 3 — Severe bot burst',
+            ]
+            for (let i = 0; i < 3; i++) {
                 setAttackWave(i + 1)
-                addAlert(`🔴 ${w.label}`, 'danger')
-                await eventsAPI.submitBatch(token, sessionId, buildBatch(w.size, w.speed))
-                // Short pause between waves so the scoring pipeline has time to react
-                await new Promise(r => setTimeout(r, 1800))
+                addAlert(`🔴 ${waveLabels[i]}`, 'danger')
+                const result = await api.post('/demo/simulate-attack', {}, {
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+                const data = result.data
+                // Update the UI score live so the examiner can see it dropping
+                if (data.trust_score !== undefined) {
+                    setTrustScore(data.trust_score)
+                    if (data.status) setTrustStatus(data.status)
+                    addAlert(`Trust score → ${data.trust_score.toFixed(1)} | Action: ${data.action}`, 'warning')
+                }
+                if (data.action === 'terminate') {
+                    // ML pipeline already terminated — tell extension to force logout all tabs
+                    try {
+                        window.postMessage({ type: 'YC_FORCE_LOGOUT_REQUEST' }, '*')
+                    } catch (_) {}
+                    setAttackWave(4)
+                    setAttackStatus('done')
+                    showToast('Session terminated by trust engine!', 'error')
+                    fetchAlerts()
+                    setTimeout(() => {
+                        setAttackStatus(null)
+                        setAttackWave(0)
+                    }, 8000)
+                    return
+                }
+                await new Promise(r => setTimeout(r, 1500))
             }
+
+            // Wave 4 (guarantee): call /demo/force-terminate — directly sets
+            // trust score to 5 and revokes the session, no matter what the
+            // ML scored. Ensures the overlay fires every time during the demo.
+            setAttackWave(4)
+            addAlert('🚨 Wave 4 — Force terminate (guaranteed)', 'danger')
+            const termResult = await api.post('/demo/force-terminate', {}, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            const termData = termResult.data
+            setTrustScore(termData.trust_score)
+            setTrustStatus(termData.status)
+
+            // ★ KEY FIX: Use window.postMessage (not chrome.runtime.sendMessage).
+            // chrome.runtime.sendMessage from a web page silently fails unless
+            // externally_connectable is configured. window.postMessage goes to the
+            // content script (which has extension access), which forwards to background.
+            try {
+                window.postMessage({ type: 'YC_FORCE_LOGOUT_REQUEST' }, '*')
+            } catch (_) {}
+
+            applyPolicy(termData.action, termData.require_stepup, termData.trust_score, termData.status)
+
             setAttackStatus('done')
-            showToast('Attack simulation complete — check the trust score!', 'warning')
+            showToast('Session terminated — logging out all tabs!', 'error')
             fetchAlerts()
-            // Auto-reset label after 6 s
-            setTimeout(() => setAttackStatus(null), 6000)
+            setTimeout(() => {
+                setAttackStatus(null)
+                setAttackWave(0)
+            }, 8000)
+
         } catch (err) {
             console.error('Simulate attack error:', err)
             setAttackStatus(null)
         }
-    }, [attackStatus, token, sessionId, addAlert, showToast, fetchAlerts])
+    }, [attackStatus, token, sessionId, addAlert, showToast, fetchAlerts, applyPolicy])
+
+    const resetDemo = useCallback(async () => {
+        try {
+            await api.post('/demo/reset-trust', {}, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            setTrustScore(100)
+            setTrustStatus('OK')
+            setAttackStatus(null)
+            setAttackWave(0)
+            addAlert('✅ Demo reset — trust score restored to 100', 'info')
+            showToast('Demo reset! Trust score restored.', 'success')
+            fetchAlerts()
+        } catch (err) {
+            showToast('Reset failed — session may have been terminated. Please log in again.', 'error')
+        }
+    }, [token, addAlert, showToast, fetchAlerts])
 
     // -----------------------------------------------------------------------
     // Render
@@ -293,23 +348,37 @@ function Dashboard() {
                             <span className="wave-dot"></span>
                             <span>Wave 3: Severe bot burst</span>
                         </div>
+                        <div className={`demo-wave ${attackWave >= 4 ? 'active' : ''} ${attackStatus === 'done' ? 'done' : ''}`}>
+                            <span className="wave-dot"></span>
+                            <span>Wave 4: Force terminate</span>
+                        </div>
                     </div>
 
-                    <button
-                        className={`demo-attack-btn ${
-                            attackStatus === 'running' ? 'btn-running' :
-                            attackStatus === 'done'    ? 'btn-done'    : ''
-                        }`}
-                        onClick={simulateAttack}
-                        disabled={attackStatus === 'running'}
-                    >
-                        {attackStatus === 'running'
-                            ? `⏳ Wave ${attackWave} of 3 running…`
-                            : attackStatus === 'done'
-                            ? '✅ Attack complete — observe the score'
-                            : '🔴 Launch Attack Simulation'
-                        }
-                    </button>
+                    <div className="demo-btn-group">
+                        <button
+                            className={`demo-attack-btn ${
+                                attackStatus === 'running' ? 'btn-running' :
+                                attackStatus === 'done'    ? 'btn-done'    : ''
+                            }`}
+                            onClick={simulateAttack}
+                            disabled={attackStatus === 'running'}
+                        >
+                            {attackStatus === 'running'
+                                ? `⏳ Wave ${attackWave} of 4…`
+                                : attackStatus === 'done'
+                                ? '✅ Terminated — overlay active on all tabs'
+                                : '🔴 Launch Attack Simulation'
+                            }
+                        </button>
+                        <button
+                            className="demo-reset-btn"
+                            onClick={resetDemo}
+                            disabled={attackStatus === 'running'}
+                            title="Reset trust score to 100 for another demo run"
+                        >
+                            ↺ Reset Demo
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

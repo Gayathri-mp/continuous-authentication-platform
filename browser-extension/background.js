@@ -163,25 +163,129 @@ function handleScoreUpdate(score, status, action, requireStepup) {
   }
 }
 
-// ── Broadcast FORCE_LOGOUT to all tabs ───────────────────────────────────────
+// ── Broadcast FORCE_LOGOUT to all tabs and terminate their sessions ───────────
 function broadcastForceLogout() {
   chrome.notifications.create('yc_terminated_' + Date.now(), {
     type: 'basic',
     iconUrl: 'icons/icon48.png',
     title: '🔴 Session Terminated',
-    message: 'Your session was terminated due to suspicious behaviour. Please log in again.',
+    message: 'Your session was terminated due to suspicious behaviour. All website sessions are being logged out.',
     priority: 2,
   });
 
-  // Via open ports (immediate)
+  // 1) Send FORCE_LOGOUT overlay message to all content scripts immediately
   for (const port of openPorts) {
     try { port.postMessage({ type: 'FORCE_LOGOUT' }); } catch (_) {}
   }
-  // Via tabs API (catches tabs whose port may have closed)
   chrome.tabs.query({}, (tabs) => {
     for (const tab of tabs) {
       if (!tab.id || tab.id < 0) continue;
       chrome.tabs.sendMessage(tab.id, { type: 'FORCE_LOGOUT' }).catch(() => {});
+    }
+  });
+
+  // 2) Terminate sessions on all tabs (clear cookies + storage)
+  // Give the overlay ~1 second to render before the page reloads/closes
+  setTimeout(() => terminateAllTabSessions(), 1200);
+}
+
+/**
+ * For each open tab (except the YourCredence platform):
+ *  1. Clear ALL cookies for the tab's origin via chrome.cookies API
+ *  2. Wipe localStorage / sessionStorage via executeScript
+ *  3. Navigate to the site's logout URL (or reload) — this is what
+ *     forces the visual logout. Without a navigation, the tab keeps
+ *     serving stale cached DOM. With it, the site detects missing
+ *     session cookies and redirects to its own login page.
+ */
+async function terminateAllTabSessions() {
+  const PLATFORM_ORIGINS = ['localhost:5173', '127.0.0.1:5173'];
+
+  // Known logout URLs for common sites — avoids cookie-only logout issues
+  const LOGOUT_URLS = {
+    'pinterest.com':   'https://www.pinterest.com/logout/',
+    'google.com':      'https://accounts.google.com/logout',
+    'gmail.com':       'https://accounts.google.com/logout',
+    'youtube.com':     'https://www.youtube.com/logout',
+    'facebook.com':    'https://www.facebook.com/logout.php',
+    'instagram.com':   'https://www.instagram.com/accounts/logout/',
+    'twitter.com':     'https://twitter.com/logout',
+    'x.com':           'https://x.com/logout',
+    'reddit.com':      'https://www.reddit.com/logout',
+    'linkedin.com':    'https://www.linkedin.com/m/logout/',
+    'github.com':      'https://github.com/logout',
+    'amazon.com':      'https://www.amazon.com/gp/sign-out.html',
+    'netflix.com':     'https://www.netflix.com/signout',
+    'microsoft.com':   'https://login.microsoftonline.com/logout.srf',
+    'outlook.com':     'https://login.microsoftonline.com/logout.srf',
+    'dropbox.com':     'https://www.dropbox.com/logout',
+    'paypal.com':      'https://www.paypal.com/signout',
+  };
+
+  chrome.tabs.query({}, async (tabs) => {
+    for (const tab of tabs) {
+      if (!tab.id || !tab.url) continue;
+
+      let tabUrl;
+      try { tabUrl = new URL(tab.url); } catch (_) { continue; }
+
+      const tabHost = tabUrl.host;
+
+      // Skip the YourCredence platform tab itself
+      if (PLATFORM_ORIGINS.some(o => tabHost.includes(o))) continue;
+      // Skip browser internal pages
+      if (!tab.url.startsWith('http')) continue;
+
+      // ── Step 1: Wipe client-side storage ──────────────────────────────────
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: false },
+          func: () => {
+            try { localStorage.clear(); } catch (_) {}
+            try { sessionStorage.clear(); } catch (_) {}
+            // Expire all JS-accessible cookies
+            document.cookie.split(';').forEach(c => {
+              const key = c.trim().split('=')[0];
+              if (!key) return;
+              document.cookie = key + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+              document.cookie = key + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.' + location.hostname + ';';
+            });
+          },
+        });
+      } catch (_) { /* scripting blocked on this tab — continue anyway */ }
+
+      // ── Step 2: Remove ALL cookies via chrome.cookies API ─────────────────
+      // This removes HttpOnly + Secure cookies that JS cannot reach
+      await new Promise(resolve => {
+        chrome.cookies.getAll({ url: tab.url }, (cookies) => {
+          if (!cookies || cookies.length === 0) { resolve(); return; }
+          let remaining = cookies.length;
+          cookies.forEach(cookie => {
+            const protocol = cookie.secure ? 'https:' : 'http:';
+            let domain = cookie.domain.startsWith('.')
+              ? cookie.domain.slice(1) : cookie.domain;
+            const cookieUrl = `${protocol}//${domain}${cookie.path || '/'}`;
+            chrome.cookies.remove({ url: cookieUrl, name: cookie.name }, () => {
+              if (--remaining === 0) resolve();
+            });
+          });
+        });
+      });
+
+      // ── Step 3: Navigate to logout URL or reload ───────────────────────────
+      // Find the best matching known logout URL for this site
+      const matchingLogout = Object.entries(LOGOUT_URLS).find(([domain]) =>
+        tabHost.includes(domain)
+      );
+
+      if (matchingLogout) {
+        // Navigate to the known logout endpoint — site cleans up server-side session
+        chrome.tabs.update(tab.id, { url: matchingLogout[1] });
+      } else {
+        // Unknown site — reload the root page; with cookies gone the site
+        // will redirect to its own login page
+        chrome.tabs.update(tab.id, { url: tabUrl.origin + '/' });
+      }
     }
   });
 }
@@ -274,6 +378,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'YC_LOGOUT':
       stopMonitoring();
+      sendResponse({ ok: true });
+      break;
+
+    case 'YC_FORCE_LOGOUT':
+      // Called by the Dashboard when the force-terminate API succeeds.
+      // broadcastForceLogout clears cookies, wipes storage, and navigates
+      // all other tabs to their logout URLs. THEN stop monitoring.
+      broadcastForceLogout();
+      setTimeout(() => stopMonitoring(), 1500); // slight delay so broadcast completes
       sendResponse({ ok: true });
       break;
 

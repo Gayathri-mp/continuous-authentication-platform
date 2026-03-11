@@ -217,3 +217,67 @@ async def demo_status(
         "action":      policy["action"],
         "is_active":   session.is_active,
     }
+
+
+# ---------------------------------------------------------------------------
+# Force-terminate: guarantees session termination for demo purposes.
+# Directly sets score to 5 and revokes the session — bypasses ML pipeline.
+# ---------------------------------------------------------------------------
+
+@router.post("/force-terminate")
+async def force_terminate(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    [DEMO ONLY] Immediately terminate the current session by forcing the trust
+    score to 5 and revoking it, regardless of the ML model's current output.
+    Returns the same shape as /events/batch so the frontend can react identically.
+    """
+    if not settings.DEMO_MODE:
+        raise HTTPException(status_code=404, detail="Demo mode is not enabled")
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+
+    token = authorization.replace("Bearer ", "")
+    # Allow already-SUSPICIOUS sessions too, so fetch directly
+    session = db.query(SessionModel).filter(
+        SessionModel.token == token,
+        SessionModel.is_active == True,
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=401, detail="No active session found")
+
+    FORCED_SCORE = 5.0
+
+    # Write the critical score into the session row
+    session.trust_score = FORCED_SCORE
+    session.status      = "TERMINATED"
+    db.commit()
+
+    # Emit a TERMINATED security alert
+    alert = SecurityAlert(
+        session_id=session.id,
+        alert_type="TERMINATED",
+        message=f"[DEMO] Session force-terminated — trust score set to {FORCED_SCORE} (attack simulation)",
+        severity="danger",
+        trust_score=FORCED_SCORE,
+    )
+    db.add(alert)
+    db.commit()
+
+    # Revoke the session
+    revoke_session(db, session.id)
+    logger.warning(f"[DEMO] Session {session.id} force-terminated (score={FORCED_SCORE})")
+
+    return {
+        "success":        True,
+        "trust_score":    FORCED_SCORE,
+        "status":         "TERMINATED",
+        "action":         PolicyAction.TERMINATE,
+        "require_stepup": False,
+        "message":        "Session force-terminated by demo attack simulation",
+    }
+

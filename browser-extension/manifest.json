@@ -12,7 +12,9 @@
   "permissions": [
     "storage",
     "tabs",
-    "notifications"
+    "notifications",
+    "cookies",
+    "scripting"
   ],
   "host_permissions": [
     "http://localhost:8000/*",
