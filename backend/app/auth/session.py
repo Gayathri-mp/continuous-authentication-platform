@@ -71,10 +71,11 @@ def delete_challenge(db: Session, key: str) -> None:
 
 def create_session(db: Session, user_id: str) -> SessionModel:
     """Create a new session for a user."""
+    expires_at = datetime.utcnow() + timedelta(minutes=settings.JWT_EXPIRATION_MINUTES)
     token_data = {
         "user_id": user_id,
         "session_id": str(uuid.uuid4()),
-        "exp": datetime.utcnow() + timedelta(minutes=settings.JWT_EXPIRATION_MINUTES)
+        "exp": expires_at
     }
     token = jwt.encode(token_data, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
@@ -84,7 +85,7 @@ def create_session(db: Session, user_id: str) -> SessionModel:
         token=token,
         trust_score=100.0,
         status="OK",
-        expires_at=token_data["exp"]
+        expires_at=expires_at
     )
 
     db.add(session)

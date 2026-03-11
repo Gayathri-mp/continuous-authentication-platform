@@ -142,6 +142,47 @@ async def register_complete(
 # Login
 # ---------------------------------------------------------------------------
 
+@router.post("/login/begin", response_model=schemas.AuthenticationBeginResponse)
+async def login_begin(
+    request: schemas.AuthenticationBeginRequest,
+    db: Session = Depends(get_db)
+):
+    """Begin WebAuthn authentication process."""
+    user = db.query(models.User).filter(
+        models.User.username == request.username
+    ).first()
+
+    if not user:
+        logger.warning(f"Login failed: User '{request.username}' not found in database.")
+        raise HTTPException(status_code=404, detail=f"User '{request.username}' not found. Please register first.")
+
+    credentials = db.query(models.Credential).filter(
+        models.Credential.user_id == user.id
+    ).all()
+
+    if not credentials:
+        raise HTTPException(status_code=400, detail="No credentials registered")
+
+    allow_credentials = [
+        PublicKeyCredentialDescriptor(id=b64url_decode(cred.credential_id))
+        for cred in credentials
+    ]
+
+    options = generate_authentication_options(
+        rp_id=settings.RP_ID,
+        allow_credentials=allow_credentials,
+        user_verification=UserVerificationRequirement.PREFERRED
+    )
+
+    # Store challenge in DB (namespaced with "auth:" prefix)
+    set_challenge(db, f"auth:{request.username}", options.challenge)
+
+    options_json = json.loads(options_to_json(options))
+    logger.info(f"Authentication started for user: {request.username}")
+
+    return schemas.AuthenticationBeginResponse(options=options_json)
+
+
 @router.post("/demo/login", response_model=schemas.AuthenticationCompleteResponse)
 async def demo_login(
     request: schemas.AuthenticationBeginRequest,
