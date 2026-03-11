@@ -3,6 +3,140 @@
  * Injected into every page via content_scripts in manifest.json
  */
 
+/* ─────────────────────────────────────────────────────────────
+   FORCE LOGOUT OVERLAY — full-screen block shown on termination
+───────────────────────────────────────────────────────────────── */
+#yc-force-logout {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483647 !important;
+  background: rgba(5, 5, 10, 0.94) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+  animation: yc-fadein 0.35s ease !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+}
+
+@keyframes yc-fadein {
+  from { opacity: 0; transform: scale(1.02); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+#yc-fl-box {
+  background: linear-gradient(160deg, #120a0a 0%, #0f0f14 100%) !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  border-radius: 12px !important;
+  padding: 40px 44px !important;
+  max-width: 480px !important;
+  width: 90% !important;
+  text-align: center !important;
+  box-shadow: 0 0 60px rgba(239, 68, 68, 0.18), 0 24px 80px rgba(0,0,0,0.7) !important;
+  animation: yc-slidein 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@keyframes yc-slidein {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+#yc-fl-icon {
+  font-size: 48px !important;
+  line-height: 1 !important;
+  margin-bottom: 16px !important;
+  animation: yc-icon-pulse 1.4s ease-in-out infinite !important;
+}
+
+@keyframes yc-icon-pulse {
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(239,68,68,0.8)); }
+  50%       { filter: drop-shadow(0 0 2px rgba(239,68,68,0.2)); }
+}
+
+#yc-fl-title {
+  font-size: 22px !important;
+  font-weight: 800 !important;
+  color: #ffffff !important;
+  margin: 0 0 12px !important;
+  letter-spacing: -0.3px !important;
+}
+
+#yc-fl-msg {
+  font-size: 13px !important;
+  color: rgba(255, 255, 255, 0.55) !important;
+  line-height: 1.6 !important;
+  margin: 0 0 18px !important;
+}
+
+#yc-fl-msg strong {
+  color: #ef4444 !important;
+  font-weight: 600 !important;
+}
+
+#yc-fl-score-row {
+  display: flex !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  margin-bottom: 20px !important;
+  flex-wrap: wrap !important;
+}
+
+.yc-fl-chip {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  padding: 3px 10px !important;
+  border-radius: 20px !important;
+  letter-spacing: 0.4px !important;
+  text-transform: uppercase !important;
+}
+
+.yc-fl-red {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #ef4444 !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+}
+
+.yc-fl-grey {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: rgba(255, 255, 255, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+#yc-fl-redirect {
+  font-size: 12px !important;
+  color: rgba(255, 255, 255, 0.35) !important;
+  margin: 0 0 20px !important;
+}
+
+#yc-fl-countdown {
+  color: #ef4444 !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+}
+
+#yc-fl-btn {
+  display: inline-block !important;
+  padding: 10px 28px !important;
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  transition: opacity 0.2s ease, box-shadow 0.2s ease !important;
+  letter-spacing: 0.2px !important;
+  font-family: inherit !important;
+}
+
+#yc-fl-btn:hover {
+  opacity: 0.88 !important;
+  box-shadow: 0 4px 18px rgba(239, 68, 68, 0.45) !important;
+}
+
+
+
 /* Trust border overlay — positioned fixed, covers full viewport, no pointer events */
 #yc-trust-border {
   position: fixed !important;
