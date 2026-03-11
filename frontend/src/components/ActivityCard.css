@@ -38,3 +38,43 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
 }
+
+/* Card header with badge */
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* "All Tabs" badge */
+.all-tabs-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--primary);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+/* Total events separator row */
+.stat-total {
+    border-top: 1px solid var(--border);
+    margin-top: 0.25rem;
+    padding-top: 0.75rem;
+    opacity: 0.75;
+}
+
+/* Explanatory note below the stats */
+.all-tabs-note {
+    margin-top: 0.75rem;
+    font-size: 0.65rem;
+    color: var(--primary-dark);
+    opacity: 0.7;
+    text-align: center;
+    font-style: italic;
+}
