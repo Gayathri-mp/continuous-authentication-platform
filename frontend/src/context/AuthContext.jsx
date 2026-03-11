@@ -49,6 +49,12 @@ export const AuthProvider = ({ children }) => {
         setUsername(session.username)
         setIsAuthenticated(true)
         localStorage.setItem('authToken', authToken)
+        // Notify the YourCredence browser extension (if installed)
+        try {
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                chrome.runtime.sendMessage({ type: 'YC_LOGIN', token: authToken })
+            }
+        } catch (_) { /* extension not installed — no-op */ }
     }
 
     const logout = async () => {
@@ -64,6 +70,12 @@ export const AuthProvider = ({ children }) => {
             setUsername(null)
             setIsAuthenticated(false)
             localStorage.removeItem('authToken')
+            // Notify the YourCredence browser extension (if installed)
+            try {
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                    chrome.runtime.sendMessage({ type: 'YC_LOGOUT' })
+                }
+            } catch (_) { /* extension not installed — no-op */ }
         }
     }
 
