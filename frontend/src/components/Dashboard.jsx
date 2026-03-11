@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { trustAPI, authAPI } from '../services/api'
+import { trustAPI, authAPI, eventsAPI } from '../services/api'
 import { useToast } from '../hooks/useToast'
 import TrustScoreCard from './TrustScoreCard'
 import SessionInfoCard from './SessionInfoCard'
@@ -24,6 +24,32 @@ function Dashboard() {
     const [alerts, setAlerts] = useState([])
 
     const { stats, updateTrustScore, isIdle, pauseCapture, resumeCapture } = useBehavioralCapture(token, sessionId)
+
+    // Backend event totals — updated every 5 s, reflects ALL tabs (incl. extension)
+    const [backendStats, setBackendStats] = useState(null)
+    const backendPollRef = useRef(null)
+
+    const fetchBackendStats = useCallback(async () => {
+        if (!token || !sessionId) return
+        try {
+            const data = await eventsAPI.getSessionEvents(token, sessionId, 1000)
+            setBackendStats({
+                keystrokeCount: data.keystroke_events ?? 0,
+                mouseCount:     data.mouse_events ?? 0,
+                totalEvents:    data.total_events ?? 0,
+            })
+        } catch (_) { /* supplementary — silently ignore */ }
+    }, [token, sessionId])
+
+    // Merged stats: use backend totals for keyboard/mouse (cross-tab),
+    // keep local batchesSent (only meaningful per-tab anyway)
+    const mergedStats = {
+        keystrokeCount: backendStats?.keystrokeCount ?? stats.keystrokeCount,
+        mouseCount:     backendStats?.mouseCount     ?? stats.mouseCount,
+        batchesSent:    stats.batchesSent,
+        totalEvents:    backendStats?.totalEvents    ?? null,
+        isBackend:      backendStats !== null,
+    }
 
     // -----------------------------------------------------------------------
     // Derived state
@@ -96,8 +122,14 @@ function Dashboard() {
     useEffect(() => {
         loadSessionInfo()
         fetchAlerts()
-        const interval = setInterval(refreshTrustScore, POLL_INTERVAL_MS)
-        return () => clearInterval(interval)
+        fetchBackendStats()
+        const trustInterval = setInterval(refreshTrustScore, POLL_INTERVAL_MS)
+        // Poll backend event counts every 5 s (so the dashboard reflects all tabs)
+        backendPollRef.current = setInterval(fetchBackendStats, 5000)
+        return () => {
+            clearInterval(trustInterval)
+            clearInterval(backendPollRef.current)
+        }
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     // -----------------------------------------------------------------------
@@ -167,7 +199,7 @@ function Dashboard() {
                     sessionInfo={sessionInfo}
                     onLogout={logout}
                 />
-                <ActivityCard stats={stats} />
+                <ActivityCard stats={mergedStats} />
                 <AlertsCard alerts={alerts} />
             </div>
 
