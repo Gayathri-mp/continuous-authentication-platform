@@ -63,13 +63,19 @@ Traditional session management authenticates a user once at login and then trust
 │  │   AuthView → Dashboard → useBehavioralCapture hook  │   │
 │  │   Components: TrustScoreCard, AlertsCard, StepUpModal│   │
 │  └──────────────────┬───────────────────────────────────┘   │
-│                     │ HTTP REST (via Nginx proxy /api/*)     │
+│                     │ HTTP REST (via Vite proxy /api/*)      │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │   YourCredence Browser Extension (Chrome MV3)        │   │
+│  │   ├─ background.js (service worker)                  │   │
+│  │   │    Polls trust score, flushes events, manages    │   │
+│  │   │    session, broadcasts FORCE_LOGOUT to all tabs  │   │
+│  │   ├─ content.js (injected into every tab)            │   │
+│  │   │    Captures keystrokes + mouse, draws trust      │   │
+│  │   │    border overlay, shows force-logout screen     │   │
+│  │   └─ popup.html / popup.js                           │   │
+│  │        Mini dashboard in the extension badge         │   │
+│  └──────────────────────────────────────────────────────┘   │
 └─────────────────────┼───────────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────────┐
-│                    Nginx Reverse Proxy                       │
-│           ( static files + /api/* → backend )               │
-└─────────────────────┬───────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────┐
 │              FastAPI Backend (Python, port 8000)             │
@@ -130,6 +136,15 @@ The system follows a **three-tier architecture**:
 | **Vite** | Latest | Fast build tool and dev server |
 | **Axios** | Latest | HTTP client for API communication |
 | **Vanilla CSS** | — | Styling (no CSS framework used) |
+
+### Browser Extension
+| Technology | Role |
+|------------|------|
+| **Chrome MV3 Extension** | Background service worker + content scripts |
+| **chrome.storage API** | Cross-tab trust score synchronization |
+| **chrome.cookies API** | Session cookie clearing on force logout |
+| **chrome.scripting API** | localStorage/sessionStorage wipe on other-site tabs |
+| **Port-based keep-alive** | Prevents MV3 service worker from sleeping |
 
 ### Infrastructure
 | Technology | Role |
@@ -271,8 +286,8 @@ Key functions:
 - `GET /auth/session` — validates the token, returns session metadata including the current trust score
 - `POST /auth/logout` — validates the token, calls `revoke_session()`
 
-**Demo endpoint:**
-- `POST /auth/demo/login` — available only in `DEMO_MODE=True`. Bypasses WebAuthn entirely — creates the user if needed and immediately creates a session. Used for testing the behavioral monitoring pipeline without hardware.
+**Demo endpoints (DEMO_MODE only):**
+- `POST /auth/demo/login` — available only in `DEMO_MODE=True`. Bypasses WebAuthn entirely for internal testing of the behavioral pipeline. **This button is not exposed in the production frontend UI.**
 
 #### `backend/app/auth/webauthn_helpers.py`
 **Binary data parsing utilities** for the WebAuthn protocol. The browser sends credentials as base64url strings; this file provides:
@@ -434,7 +449,11 @@ Returns a dict with `action`, `message`, `require_stepup`, and `trust_score`. Th
 Configures a structured JSON logger. All modules import and use `from app.utils.logger import logger`. Log entries include contextual `extra` fields (session_id, user_id, trust scores) for easier analysis.
 
 #### `backend/app/demo/routes.py`
-Demo-mode routes (`/demo/*`) that simulate impersonation scenarios. Useful for demonstration and automated testing. Implements actions like injecting anomalous events to trigger the trust engine, simulating a step-up scenario, etc.
+Demo-mode routes (`/demo/*`) for simulation and automated testing. Key endpoints:
+- `POST /demo/simulate-attack` — injects robot-like behavioral events (inhuman typing speed, teleporting mouse) into the current session and re-runs the real ML scoring pipeline. Useful for gradually driving down the trust score.
+- `POST /demo/force-terminate` — directly sets the session trust score to 5 and revokes it, bypassing the ML pipeline. Used by the frontend attack simulation panel to guarantee a termination event during demos.
+- `POST /demo/reset-trust` — resets trust score to 100 and status to OK for a fresh demo run without needing to log out.
+- `GET /demo/status` — quick summary of the current session's trust state.
 
 #### `backend/scripts/train_model.py`
 An offline training script used during evaluation. Reads historical feature vectors from the database, trains `TrustModel` instances, and evaluates performance metrics (True Positive Rate, False Positive Rate, step-up rate, average trust latency).
@@ -520,9 +539,8 @@ These conversions are necessary because the WebAuthn browser API uses raw binary
 **The login/register screen.** Two-tab interface:
 - **Register tab**: collects a username, calls `authAPI.registerBegin()` to get options, invokes `navigator.credentials.create({ publicKey: options })` to trigger the authenticator, then calls `authAPI.registerComplete()` with the serialized credential
 - **Login tab**: similar — `loginBegin()` → `navigator.credentials.get()` → `loginComplete()` → `login()` context call
-- **Demo Bypass button**: calls `authAPI.demoLogin()` — skips WebAuthn for testing
 
-Binary conversions (base64url ↔ ArrayBuffer) happen here before passing options to the WebAuthn browser API.
+Binary conversions (base64url ↔ ArrayBuffer) happen here before passing options to the WebAuthn browser API. The login form only exposes WebAuthn — there is no password or bypass button in the production UI.
 
 #### `frontend/src/components/Dashboard.jsx`
 **The main post-login screen** and the behavioral monitoring controller.
@@ -746,10 +764,37 @@ Dashboard.jsx → StepUpModal rendered (capture paused)
 - Session information card with expiry time
 
 ### ✅ Feature 10: Demo & Testing Infrastructure
-- Demo mode with WebAuthn bypass for rapid testing
 - Automated test suite (pytest)
 - Evaluation script computing TPR, FPR, step-up rate, average trust latency
 - Docker Compose setup for reproducible deployment
+- Demo backend endpoints (`/demo/simulate-attack`, `/demo/force-terminate`, `/demo/reset-trust`) that are backend-only and not exposed as UI buttons
+
+### ✅ Feature 11: YourCredence Browser Extension (Chrome MV3)
+A companion browser extension that extends behavioral monitoring and trust enforcement **across all browser tabs**, not just the platform tab.
+
+- **`background.js`** (service worker): polls the backend for trust scores every 7 seconds, buffers and flushes behavioral events every 5 seconds, broadcasts trust updates and force-logout events to all tabs. Uses port-based keep-alive to prevent MV3 service worker sleep.
+- **`content.js`** (injected into every page): captures keystrokes and mouse events, draws a color-coded trust border overlay (🟢 green / 🟡 yellow / 🔴 red) around every tab's viewport, shows a full-screen "Session Terminated" overlay on force logout.
+- **`popup.html` / `popup.js`**: mini dashboard in the extension badge showing the current trust score, session status, and connection state.
+- **`styles/overlay.css`**: injected CSS for the trust border and force-logout overlay card.
+- **Communication**: uses `chrome.storage.local` for reliable cross-tab score distribution and port messaging (`chrome.runtime.connect`) as a fast path. Web page → extension messages use the `window.postMessage` bridge pattern (required because `chrome.runtime.sendMessage` is not available from web pages without `externally_connectable`).
+
+### ✅ Feature 12: Cross-Tab Force Logout
+When a session is terminated (trust score < 20), the extension forcefully logs the user out of **all** open browser tabs:
+
+1. **Overlay**: content script shows a full-screen "🔴 Session Terminated" card with a 5-second countdown on every tab
+2. **Cookie deletion**: `chrome.cookies.getAll` + `chrome.cookies.remove` deletes all cookies (including HttpOnly) for each tab's origin
+3. **Storage wipe**: `chrome.scripting.executeScript` clears `localStorage` and `sessionStorage` on each non-platform tab
+4. **Navigation**: each tab is redirected to the site's known logout URL (Pinterest, Google, Facebook, etc.) or reloaded at the root — forcing the site to redirect to its own login page
+
+This applies to both the demo attack simulation and real trust-driven terminations.
+
+### ✅ Feature 13: Attack Simulation Demo Panel
+A dedicated demo panel in the dashboard for examiner demonstrations:
+
+- **4-wave escalation**: Waves 1–3 call `POST /demo/simulate-attack` (real ML pipeline — score drops progressively). Wave 4 calls `POST /demo/force-terminate` (guaranteed session termination regardless of ML score).
+- **Live UI feedback**: each wave lights up as it runs, the trust score gauge updates in real time.
+- **Force logout trigger**: after force-terminate, the Dashboard sends `YC_FORCE_LOGOUT_REQUEST` via `window.postMessage` → content script bridges it to background → all other tabs are logged out.
+- **Reset Demo button**: calls `POST /demo/reset-trust` to restore trust score to 100 for repeated demonstrations.
 
 ---
 
@@ -797,12 +842,15 @@ The `backend/scripts/train_model.py` evaluation script computes:
 - Integration tests covering: registration flow, login flow, event batch pipeline, trust scoring, step-up flow including the impersonation scenario
 - `backend/test_webauthn.py` — unit tests for WebAuthn credential parsing
 
-### Manual Demo Scenario (Impersonation Test)
-1. Register and log in as `legitimate_user` (establish behavioral baseline)
-2. Simulate session takeover by injecting anomalous events (robot-speed typing, extreme mouse speed)
-3. Observe trust score drop in real-time on dashboard
-4. Verify step-up is triggered within the expected latency window
-5. Optionally let step-up time out → verify session terminates
+### Manual Demo Scenario (Impersonation / Attack Simulation)
+1. Register and log in normally via WebAuthn (`localhost:5173`)
+2. Install the YourCredence browser extension and connect it (popup shows "Connected")
+3. Open Pinterest, Google, or any other site in additional tabs
+4. On the dashboard, click **"🔴 Launch Attack Simulation"**
+5. Watch the trust score drop through each wave (score shown live on the gauge)
+6. After wave 4 (force-terminate), all open tabs receive a full-screen "Session Terminated" overlay
+7. Other-site sessions (Pinterest, etc.) are logged out via cookie deletion + navigation
+8. The **"↺ Reset Demo"** button restores the score to 100 for a repeat demonstration
 
 ---
 
