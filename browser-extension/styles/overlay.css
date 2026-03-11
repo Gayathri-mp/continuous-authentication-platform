@@ -1,0 +1,113 @@
+/**
+ * YourCredence Auth Monitor — Overlay Styles
+ * Injected into every page via content_scripts in manifest.json
+ */
+
+/* Trust border overlay — positioned fixed, covers full viewport, no pointer events */
+#yc-trust-border {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  pointer-events: none !important;
+  z-index: 2147483647 !important; /* max z-index */
+  border: 6px solid transparent !important;
+  border-radius: 0 !important;
+  box-sizing: border-box !important;
+  transition: border-color 1.2s ease, box-shadow 1.2s ease !important;
+  outline: none !important;
+}
+
+/* Green — trust is good (≥ 75) */
+#yc-trust-border.yc-green {
+  border-color: rgba(34, 197, 94, 0.75) !important;
+  box-shadow: inset 0 0 20px rgba(34, 197, 94, 0.15) !important;
+}
+
+/* Yellow — warning (50–74) */
+#yc-trust-border.yc-yellow {
+  border-color: rgba(234, 179, 8, 0.80) !important;
+  box-shadow: inset 0 0 20px rgba(234, 179, 8, 0.18) !important;
+}
+
+/* Red — low trust / danger (< 50) */
+#yc-trust-border.yc-red {
+  border-color: rgba(239, 68, 68, 0.85) !important;
+  box-shadow: inset 0 0 24px rgba(239, 68, 68, 0.22) !important;
+}
+
+/* Pulse animation triggered on large trust drops */
+#yc-trust-border.yc-pulse {
+  animation: yc-border-pulse 1.4s ease-in-out 3 !important;
+}
+
+@keyframes yc-border-pulse {
+  0%   { opacity: 1; }
+  40%  { opacity: 0.25; }
+  60%  { opacity: 0.25; }
+  100% { opacity: 1; }
+}
+
+/* ───────────────────────────────────────────
+   Floating trust score badge (bottom-right)
+─────────────────────────────────────────── */
+#yc-score-badge {
+  position: fixed !important;
+  bottom: 18px !important;
+  right: 18px !important;
+  z-index: 2147483646 !important;
+  pointer-events: none !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  background: rgba(10, 10, 20, 0.82) !important;
+  color: #fff !important;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.45) !important;
+  transition: opacity 0.6s ease !important;
+  user-select: none !important;
+  line-height: 1 !important;
+  letter-spacing: 0.3px !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+#yc-score-badge.yc-hidden {
+  opacity: 0 !important;
+}
+
+#yc-badge-dot {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: #22c55e !important;
+  display: inline-block !important;
+  transition: background 0.6s ease !important;
+  flex-shrink: 0 !important;
+}
+
+#yc-badge-dot.yc-yellow-dot { background: #eab308 !important; }
+#yc-badge-dot.yc-red-dot    { background: #ef4444 !important; animation: yc-dot-blink 0.9s ease-in-out infinite !important; }
+
+@keyframes yc-dot-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+
+#yc-badge-label {
+  color: rgba(255,255,255,0.7) !important;
+  font-weight: 400 !important;
+}
+
+#yc-badge-score {
+  color: #22c55e !important;
+  transition: color 0.6s ease !important;
+}
+
+#yc-badge-score.yc-yellow-score { color: #eab308 !important; }
+#yc-badge-score.yc-red-score    { color: #ef4444 !important; }
