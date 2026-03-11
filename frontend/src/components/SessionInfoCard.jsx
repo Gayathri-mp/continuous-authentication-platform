@@ -1,9 +1,18 @@
 import './SessionInfoCard.css'
 
 function SessionInfoCard({ username, sessionId, sessionInfo, onLogout }) {
+    // Backend sends UTC timestamps (sometimes without 'Z' suffix).
+    // Append 'Z' if no timezone offset is present so JS parses it as UTC,
+    // then toLocaleString() converts to the user's local system timezone.
     const formatDate = (dateString) => {
         if (!dateString) return '-'
-        return new Date(dateString).toLocaleString()
+        const utcStr = /[Z+\-]\d{2}:?\d{2}$|Z$/.test(dateString)
+            ? dateString
+            : dateString + 'Z'
+        return new Date(utcStr).toLocaleString(undefined, {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+        })
     }
 
     return (
