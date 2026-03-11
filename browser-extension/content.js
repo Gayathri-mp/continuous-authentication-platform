@@ -112,21 +112,72 @@
   }
 
   // ─── PRIMARY: chrome.storage.onChanged ────────────────────────────────────
-  // This fires in ALL tabs whenever background updates yc_score in storage.
-  // Works even if the service worker was sleeping — storage changes always propagate.
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (changes.yc_score !== undefined) {
-      updateBorder(changes.yc_score.newValue);
+      // If score was removed (stopMonitoring cleared it), hide the border
+      if (changes.yc_score.newValue === undefined) {
+        updateBorder(null);
+      } else {
+        updateBorder(changes.yc_score.newValue);
+      }
     }
   });
 
-  // ─── SECONDARY: direct message from background (fast path) ───────────────
+  // ─── SECONDARY: direct message from background ────────────────────────────
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'TRUST_UPDATE' && message.score !== undefined) {
       updateBorder(message.score);
     }
+    if (message.type === 'FORCE_LOGOUT') {
+      showForceLogoutOverlay();
+    }
   });
+
+  // ─── Force-logout full-screen overlay ────────────────────────────────────
+  function showForceLogoutOverlay() {
+    // Avoid duplicates
+    if (document.getElementById('yc-force-logout')) return;
+
+    // Hide the trust border — session is over
+    updateBorder(null);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'yc-force-logout';
+    overlay.innerHTML = `
+      <div id="yc-fl-box">
+        <div id="yc-fl-icon">🔴</div>
+        <h2 id="yc-fl-title">Session Terminated</h2>
+        <p id="yc-fl-msg">
+          Continuous authentication detected <strong>suspicious behaviour</strong>.
+          Your session has been forcefully terminated for security.
+        </p>
+        <div id="yc-fl-score-row">
+          <span class="yc-fl-chip yc-fl-red">Trust Score: Critical</span>
+          <span class="yc-fl-chip yc-fl-grey">Action: TERMINATE</span>
+        </div>
+        <p id="yc-fl-redirect">Redirecting to login in <span id="yc-fl-countdown">5</span>s…</p>
+        <button id="yc-fl-btn">Go to Login Now</button>
+      </div>
+    `;
+    document.documentElement.appendChild(overlay);
+
+    const PLATFORM = 'http://localhost:5173';
+    const btn = document.getElementById('yc-fl-btn');
+    const countdownEl = document.getElementById('yc-fl-countdown');
+    let remaining = 5;
+
+    btn.addEventListener('click', () => { window.location.href = PLATFORM; });
+
+    const tick = setInterval(() => {
+      remaining -= 1;
+      if (countdownEl) countdownEl.textContent = remaining;
+      if (remaining <= 0) {
+        clearInterval(tick);
+        window.location.href = PLATFORM;
+      }
+    }, 1000);
+  }
 
   // ─── Behavioral event listeners ───────────────────────────────────────────
   document.addEventListener('keydown', (e) => {
