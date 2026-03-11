@@ -168,6 +168,62 @@ function Dashboard() {
     }
 
     // -----------------------------------------------------------------------
+    // Demo: Simulate Attack
+    // -----------------------------------------------------------------------
+    const [attackStatus, setAttackStatus] = useState(null)  // null | 'running' | 'done'
+    const [attackWave,   setAttackWave]   = useState(0)     // 1-3
+
+    const simulateAttack = useCallback(async () => {
+        if (attackStatus === 'running') return
+        setAttackStatus('running')
+        setAttackWave(0)
+        addAlert('⚠️ Demo: Simulated attack initiated', 'warning')
+
+        // Build a batch of robot-like events (inhuman rhythm + mouse teleports)
+        const buildBatch = (size, speed) =>
+            Array.from({ length: size }, (_, i) => [
+                {
+                    type: 'keystroke', key: 'a', action: 'down',
+                    timestamp: Date.now() / 1000 + i * speed,
+                },
+                {
+                    type: 'keystroke', key: 'a', action: 'up',
+                    timestamp: Date.now() / 1000 + i * speed + speed / 2,
+                },
+                {
+                    type: 'mouse', x: i % 2 === 0 ? 0 : 1920, y: i % 2 === 0 ? 0 : 1080,
+                    action: 'move',
+                    timestamp: Date.now() / 1000 + i * speed + speed / 4,
+                },
+            ]).flat()
+
+        const waves = [
+            { label: 'Wave 1 — Mild anomaly',    size: 40,  speed: 0.015 },
+            { label: 'Wave 2 — Moderate attack', size: 60,  speed: 0.008 },
+            { label: 'Wave 3 — Severe bot burst', size: 80, speed: 0.004 },
+        ]
+
+        try {
+            for (let i = 0; i < waves.length; i++) {
+                const w = waves[i]
+                setAttackWave(i + 1)
+                addAlert(`🔴 ${w.label}`, 'danger')
+                await eventsAPI.submitBatch(token, sessionId, buildBatch(w.size, w.speed))
+                // Short pause between waves so the scoring pipeline has time to react
+                await new Promise(r => setTimeout(r, 1800))
+            }
+            setAttackStatus('done')
+            showToast('Attack simulation complete — check the trust score!', 'warning')
+            fetchAlerts()
+            // Auto-reset label after 6 s
+            setTimeout(() => setAttackStatus(null), 6000)
+        } catch (err) {
+            console.error('Simulate attack error:', err)
+            setAttackStatus(null)
+        }
+    }, [attackStatus, token, sessionId, addAlert, showToast, fetchAlerts])
+
+    // -----------------------------------------------------------------------
     // Render
     // -----------------------------------------------------------------------
     return (
@@ -212,6 +268,50 @@ function Dashboard() {
                     onCancel={logout}
                 />
             )}
+
+            {/* ── Demo Attack Panel ───────────────────────────────────────── */}
+            <div className="demo-attack-panel">
+                <div className="demo-attack-header">
+                    <span className="demo-badge">🧪 DEMO</span>
+                    <h4>Attack Simulation</h4>
+                    <span className="demo-desc">
+                        Injects robot-like behavioural events to trigger anomaly detection
+                    </span>
+                </div>
+
+                <div className="demo-attack-body">
+                    <div className="demo-waves">
+                        <div className={`demo-wave ${attackWave >= 1 ? 'active' : ''} ${attackStatus === 'done' ? 'done' : ''}`}>
+                            <span className="wave-dot"></span>
+                            <span>Wave 1: Mild anomaly</span>
+                        </div>
+                        <div className={`demo-wave ${attackWave >= 2 ? 'active' : ''} ${attackStatus === 'done' ? 'done' : ''}`}>
+                            <span className="wave-dot"></span>
+                            <span>Wave 2: Moderate attack</span>
+                        </div>
+                        <div className={`demo-wave ${attackWave >= 3 ? 'active' : ''} ${attackStatus === 'done' ? 'done' : ''}`}>
+                            <span className="wave-dot"></span>
+                            <span>Wave 3: Severe bot burst</span>
+                        </div>
+                    </div>
+
+                    <button
+                        className={`demo-attack-btn ${
+                            attackStatus === 'running' ? 'btn-running' :
+                            attackStatus === 'done'    ? 'btn-done'    : ''
+                        }`}
+                        onClick={simulateAttack}
+                        disabled={attackStatus === 'running'}
+                    >
+                        {attackStatus === 'running'
+                            ? `⏳ Wave ${attackWave} of 3 running…`
+                            : attackStatus === 'done'
+                            ? '✅ Attack complete — observe the score'
+                            : '🔴 Launch Attack Simulation'
+                        }
+                    </button>
+                </div>
+            </div>
         </div>
     )
 }
