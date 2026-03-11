@@ -13,7 +13,7 @@ function Header() {
                         <path d="M9 12l2 2 4-4" stroke="#00c853" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                 </div>
-                <h1>Adaptive Auth</h1>
+                <h1>YourCredence</h1>
             </div>
             <div className="header-info">
                 <span className={`status-badge ${isAuthenticated ? 'authenticated' : ''}`}>
