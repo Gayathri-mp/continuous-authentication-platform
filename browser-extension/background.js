@@ -123,9 +123,7 @@ function handleScoreUpdate(score, status, action, requireStepup) {
 
   updateBadge(score, true);
 
-  // *** KEY FIX: Write score to chrome.storage.local ***
-  // chrome.storage.onChanged fires in EVERY content script in EVERY tab.
-  // This is the reliable cross-tab notification channel.
+  // KEY FIX: Write score to chrome.storage.local
   chrome.storage.local.set({
     yc_score:  score,
     yc_status: status,
@@ -134,6 +132,14 @@ function handleScoreUpdate(score, status, action, requireStepup) {
 
   // Also broadcast directly to any awake content scripts (fast path)
   broadcastTrustUpdate(score, status, action, requireStepup);
+
+  // ── Session terminated by policy engine ──────────────────────────────────
+  if (action === 'terminate') {
+    console.warn('[YC-BG] Session terminated by backend — forcing logout on all tabs');
+    broadcastForceLogout();
+    stopMonitoring();
+    return; // nothing more to do
+  }
 
   // Notifications on significant drops
   if (prev !== null && (prev - score) >= 15 && score < 70) {
@@ -157,7 +163,30 @@ function handleScoreUpdate(score, status, action, requireStepup) {
   }
 }
 
-// ── Broadcast to all awake content scripts ────────────────────────────────────
+// ── Broadcast FORCE_LOGOUT to all tabs ───────────────────────────────────────
+function broadcastForceLogout() {
+  chrome.notifications.create('yc_terminated_' + Date.now(), {
+    type: 'basic',
+    iconUrl: 'icons/icon48.png',
+    title: '🔴 Session Terminated',
+    message: 'Your session was terminated due to suspicious behaviour. Please log in again.',
+    priority: 2,
+  });
+
+  // Via open ports (immediate)
+  for (const port of openPorts) {
+    try { port.postMessage({ type: 'FORCE_LOGOUT' }); } catch (_) {}
+  }
+  // Via tabs API (catches tabs whose port may have closed)
+  chrome.tabs.query({}, (tabs) => {
+    for (const tab of tabs) {
+      if (!tab.id || tab.id < 0) continue;
+      chrome.tabs.sendMessage(tab.id, { type: 'FORCE_LOGOUT' }).catch(() => {});
+    }
+  });
+}
+
+// ── Broadcast TRUST_UPDATE to all awake content scripts ──────────────────────
 function broadcastTrustUpdate(score, status, action, requireStepup) {
   // Also send via open ports (immediate, ordered delivery)
   for (const port of openPorts) {
