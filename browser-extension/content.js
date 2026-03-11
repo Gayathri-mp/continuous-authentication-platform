@@ -1,40 +1,61 @@
 /**
- * YourCredence Auth Monitor — Content Script
+ * YourCredence Auth Monitor — Content Script (v2)
  *
- * Injected into every page by the manifest.
- * Responsibilities:
- *  1. Capture behavioral events (keystrokes, mouse) and forward to background service worker
- *  2. Listen for TRUST_UPDATE messages and update the visual border + score badge
+ * Cross-tab fix: Uses chrome.storage.onChanged as PRIMARY channel for trust
+ * score updates. This is reliable across ALL tabs regardless of service worker
+ * sleep state. sendMessage is kept as a secondary fast channel.
+ *
+ * Keep-alive fix: Opens a long-lived port to the background service worker.
+ * While any content script port is open, the service worker stays awake and
+ * can run setInterval-based event flushing / score polling.
  */
 
 ;(function () {
   'use strict';
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Guard: only inject once (handles iframes / script reinsertion edge cases)
-  // ───────────────────────────────────────────────────────────────────────────
   if (window.__ycInjected) return;
   window.__ycInjected = true;
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // State
-  // ───────────────────────────────────────────────────────────────────────────
+  // ─── State ────────────────────────────────────────────────────────────────
   let lastScore = null;
   let lastMouseMove = 0;
-  const MOUSE_THROTTLE = 100; // ms
+  let bgPort = null;
+  const MOUSE_THROTTLE = 80; // ms
+  const eventQueue = []; // local buffer — flushed via port
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Build DOM elements for the border overlay and score badge
-  // ───────────────────────────────────────────────────────────────────────────
+  // ─── Keep-alive port ──────────────────────────────────────────────────────
+  // Opening a Port keeps the MV3 service worker alive as long as this tab is open.
+  function connectPort() {
+    try {
+      bgPort = chrome.runtime.connect({ name: 'yc-keepalive' });
+      bgPort.onDisconnect.addListener(() => {
+        bgPort = null;
+        // Reconnect after a short delay (e.g. extension update or worker crash)
+        setTimeout(connectPort, 2000);
+      });
+    } catch (_) {}
+  }
+
+  // ─── Send behavioral event ─────────────────────────────────────────────────
+  function sendEvent(data) {
+    if (bgPort) {
+      try { bgPort.postMessage({ type: 'BEHAVIORAL_EVENT', data }); } catch (_) {}
+    } else {
+      // Fallback: postMessage wakes worker if sleeping
+      try {
+        chrome.runtime.sendMessage({ type: 'BEHAVIORAL_EVENT', data }).catch(() => {});
+      } catch (_) {}
+    }
+  }
+
+  // ─── Create DOM overlay elements ──────────────────────────────────────────
   function createOverlay() {
     if (document.getElementById('yc-trust-border')) return;
 
-    // Trust border (full-viewport fixed div)
     const border = document.createElement('div');
     border.id = 'yc-trust-border';
-    document.documentElement.appendChild(border); // attach to <html> not <body>
+    document.documentElement.appendChild(border);
 
-    // Score badge (bottom-right corner)
     const badge = document.createElement('div');
     badge.id = 'yc-score-badge';
     badge.className = 'yc-hidden';
@@ -46,125 +67,91 @@
     document.documentElement.appendChild(badge);
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Update the visual border and badge based on score
-  // ───────────────────────────────────────────────────────────────────────────
+  // ─── Update border + badge color ──────────────────────────────────────────
   function updateBorder(score) {
-    const border = document.getElementById('yc-trust-border');
-    const badge  = document.getElementById('yc-score-badge');
-    const dot    = document.getElementById('yc-badge-dot');
+    const border  = document.getElementById('yc-trust-border');
+    const badge   = document.getElementById('yc-score-badge');
+    const dot     = document.getElementById('yc-badge-dot');
     const scoreEl = document.getElementById('yc-badge-score');
 
-    if (!border || !badge) return;
+    if (!border || !badge) {
+      // Overlay wasn't created yet (e.g. very fast init) — create it now
+      createOverlay();
+      setTimeout(() => updateBorder(score), 50);
+      return;
+    }
 
-    // Determine color tier
-    let tier;
     if (score === null || score === undefined) {
-      // No active session — hide everything
       border.className = '';
       badge.className  = 'yc-hidden';
       return;
-    } else if (score >= 75) {
-      tier = 'green';
-    } else if (score >= 50) {
-      tier = 'yellow';
-    } else {
-      tier = 'red';
     }
 
-    // Detect large drop → trigger pulse
+    let tier;
+    if (score >= 75)      tier = 'green';
+    else if (score >= 50) tier = 'yellow';
+    else                  tier = 'red';
+
+    // Pulse on large drops
     const dropped = lastScore !== null && (lastScore - score) >= 12;
 
-    // Update border class
     border.className = `yc-${tier}`;
-
     if (dropped) {
-      // Force reflow so removing then re-adding the class re-triggers animation
       border.classList.remove('yc-pulse');
-      void border.offsetWidth; // trigger reflow
+      void border.offsetWidth;
       border.classList.add('yc-pulse');
-      // Auto-remove pulse class after animation completes (~1.4s × 3 iterations = 4.3s)
       setTimeout(() => border.classList.remove('yc-pulse'), 4500);
     }
 
-    // Update badge
-    badge.className = ''; // visible
-    dot.className = tier === 'green' ? '' : `yc-${tier}-dot`;
+    badge.className  = '';
+    dot.className    = tier === 'green' ? '' : `yc-${tier}-dot`;
     scoreEl.className = tier === 'green' ? '' : `yc-${tier}-score`;
     scoreEl.textContent = Math.round(score).toString();
 
     lastScore = score;
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Send a behavioral event to the background service worker
-  // ───────────────────────────────────────────────────────────────────────────
-  function sendEvent(data) {
-    try {
-      chrome.runtime.sendMessage({ type: 'BEHAVIORAL_EVENT', data }).catch(() => {});
-    } catch (_) {}
-  }
+  // ─── PRIMARY: chrome.storage.onChanged ────────────────────────────────────
+  // This fires in ALL tabs whenever background updates yc_score in storage.
+  // Works even if the service worker was sleeping — storage changes always propagate.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.yc_score !== undefined) {
+      updateBorder(changes.yc_score.newValue);
+    }
+  });
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Event listeners — capture keyboard + mouse on the whole document
-  // ───────────────────────────────────────────────────────────────────────────
+  // ─── SECONDARY: direct message from background (fast path) ───────────────
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'TRUST_UPDATE' && message.score !== undefined) {
+      updateBorder(message.score);
+    }
+  });
+
+  // ─── Behavioral event listeners ───────────────────────────────────────────
   document.addEventListener('keydown', (e) => {
-    // Never capture passwords
     if (e.target && e.target.type === 'password') return;
-    sendEvent({
-      type: 'keystroke',
-      key: e.key.length === 1 ? e.key : e.code,
-      action: 'down',
-      timestamp: Date.now() / 1000,
-    });
+    sendEvent({ type: 'keystroke', key: e.key.length === 1 ? e.key : e.code, action: 'down', timestamp: Date.now() / 1000 });
   }, { capture: true, passive: true });
 
   document.addEventListener('keyup', (e) => {
     if (e.target && e.target.type === 'password') return;
-    sendEvent({
-      type: 'keystroke',
-      key: e.key.length === 1 ? e.key : e.code,
-      action: 'up',
-      timestamp: Date.now() / 1000,
-    });
+    sendEvent({ type: 'keystroke', key: e.key.length === 1 ? e.key : e.code, action: 'up', timestamp: Date.now() / 1000 });
   }, { capture: true, passive: true });
 
   document.addEventListener('mousemove', (e) => {
     const now = Date.now();
     if (now - lastMouseMove < MOUSE_THROTTLE) return;
     lastMouseMove = now;
-    sendEvent({
-      type: 'mouse',
-      x: e.clientX,
-      y: e.clientY,
-      action: 'move',
-      timestamp: now / 1000,
-    });
+    sendEvent({ type: 'mouse', x: e.clientX, y: e.clientY, action: 'move', timestamp: now / 1000 });
   }, { capture: true, passive: true });
 
   document.addEventListener('click', (e) => {
-    sendEvent({
-      type: 'mouse',
-      x: e.clientX,
-      y: e.clientY,
-      action: 'click',
-      timestamp: Date.now() / 1000,
-    });
+    sendEvent({ type: 'mouse', x: e.clientX, y: e.clientY, action: 'click', timestamp: Date.now() / 1000 });
   }, { capture: true, passive: true });
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Listen for TRUST_UPDATE messages from the background service worker
-  // ───────────────────────────────────────────────────────────────────────────
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message.type !== 'TRUST_UPDATE') return;
-    updateBorder(message.score);
-  });
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // Check if we're on the YourCredence platform tab — read token from localStorage
-  // and send it to the background if found. This bridges the token handoff
-  // without requiring externally_connectable config.
-  // ───────────────────────────────────────────────────────────────────────────
+  // ─── Token sync from the platform page ────────────────────────────────────
+  // Only runs on localhost:5173 — reads authToken and hands it to background.
   function syncTokenFromPage() {
     if (!window.location.hostname.includes('localhost')) return;
     const token = localStorage.getItem('authToken');
@@ -173,29 +160,25 @@
     }
   }
 
-  // Run on load and also watch for storage changes (login/logout events)
-  syncTokenFromPage();
-
   window.addEventListener('storage', (e) => {
-    if (e.key === 'authToken') {
-      if (e.newValue) {
-        chrome.runtime.sendMessage({ type: 'YC_LOGIN', token: e.newValue }).catch(() => {});
-      } else {
-        // Token removed = logout
-        chrome.runtime.sendMessage({ type: 'YC_LOGOUT' }).catch(() => {});
-      }
+    if (e.key !== 'authToken') return;
+    if (e.newValue) {
+      chrome.runtime.sendMessage({ type: 'YC_LOGIN', token: e.newValue }).catch(() => {});
+    } else {
+      chrome.runtime.sendMessage({ type: 'YC_LOGOUT' }).catch(() => {});
     }
   });
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Initialise: create overlay elements and request current trust score
-  // ───────────────────────────────────────────────────────────────────────────
+  // ─── Init ─────────────────────────────────────────────────────────────────
   function init() {
     createOverlay();
-    // Ask the background for the current score so border is correct immediately
-    chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
-      if (response && response.score !== null && response.score !== undefined) {
-        updateBorder(response.score);
+    connectPort();
+    syncTokenFromPage();
+
+    // Read cached score from storage immediately — no message round-trip needed
+    chrome.storage.local.get(['yc_score'], (items) => {
+      if (items.yc_score !== undefined && items.yc_score !== null) {
+        updateBorder(items.yc_score);
       }
     });
   }
