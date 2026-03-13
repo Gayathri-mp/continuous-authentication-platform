@@ -1,0 +1,51 @@
+services:
+  # 1. Database (PostgreSQL)
+  - type: database
+    name: yc_auth_db
+    plan: free
+    region: oregon
+
+  # 2. Backend (FastAPI)
+  - type: web
+    name: yc_auth_backend
+    env: docker
+    region: oregon
+    plan: free
+    dockerContext: ./backend
+    dockerfile: Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: yc_auth_db
+          property: connectionString
+      - key: RP_ID
+        sync: false
+      - key: RP_ORIGIN
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DEMO_MODE
+        value: "true"
+
+  # 3. Frontend (React)
+  - type: static
+    name: yc_auth_frontend
+    env: static
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    publishDir: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: yc_auth_backend
+          property: host
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://yc_auth_backend.onrender.com/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
