@@ -109,3 +109,23 @@ class TrustModel:
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
             return False
+
+    def to_bytes(self) -> bytes:
+        """Serialize model to bytes for DB storage."""
+        return pickle.dumps({
+            'model': self.model,
+            'scaler': self.scaler,
+            'is_trained': self.is_trained
+        })
+
+    def from_bytes(self, data: bytes) -> bool:
+        """Deserialize model from bytes."""
+        try:
+            state = pickle.loads(data)
+            self.model = state['model']
+            self.scaler = state['scaler']
+            self.is_trained = state['is_trained']
+            return True
+        except Exception as e:
+            logger.error(f"Error deserializing model from bytes: {e}")
+            return False
