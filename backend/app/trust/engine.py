@@ -109,8 +109,18 @@ def _load_model_from_db(db: DBSession, user_id: str) -> Optional[TrustModel]:
         return None
 
     model = TrustModel()
+    
+    # Priority 1: Load from database binary (essential for stateless cloud)
+    if baseline.model_bytes:
+        if model.from_bytes(baseline.model_bytes):
+            logger.info(f"Loaded personal model for user {user_id} from database binary")
+            return model
+        else:
+            logger.error(f"Failed to load personal model for user {user_id} from database binary")
+
+    # Priority 2: Fallback to disk (for local dev persistence)
     if model.load(baseline.model_path):
-        logger.info(f"Loaded personal model for user {user_id} from {baseline.model_path}")
+        logger.info(f"Loaded personal model for user {user_id} from disk: {baseline.model_path}")
         return model
 
     logger.warning(f"Personal model file missing for user {user_id}: {baseline.model_path}")
@@ -147,12 +157,14 @@ def _train_and_save_user_model(
             baseline = UserBaseline(
                 user_id=user_id,
                 model_path=model_path,
+                model_bytes=model.to_bytes(),
                 sessions_used=sessions_used,
                 vectors_used=len(feature_matrix),
             )
             db.add(baseline)
         else:
             baseline.model_path = model_path
+            baseline.model_bytes = model.to_bytes()
             baseline.sessions_used = sessions_used
             baseline.vectors_used = len(feature_matrix)
             baseline.last_trained_at = datetime.now(timezone.utc)
