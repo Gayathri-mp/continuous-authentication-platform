@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Integer, Float, Boolean, JSON, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, Integer, Float, Boolean, JSON, ForeignKey, Text, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -104,6 +104,7 @@ class UserBaseline(Base):
     id              = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id         = Column(String, ForeignKey("users.id"), nullable=False, unique=True, index=True)
     model_path      = Column(String, nullable=False)   # absolute path to .pkl file
+    model_bytes     = Column(LargeBinary, nullable=True) # binary storage for stateless deployment
     sessions_used   = Column(Integer, nullable=False, default=0)  # sessions seen at training time
     vectors_used    = Column(Integer, nullable=False, default=0)  # data points used to train
     last_trained_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
