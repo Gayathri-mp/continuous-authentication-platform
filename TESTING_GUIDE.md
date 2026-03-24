@@ -73,10 +73,9 @@ cd backend
 python -m venv venv
 venv\Scripts\activate  # Windows, or: source venv/bin/activate (Mac/Linux)
 pip install -r requirements.txt
-set DATABASE_URL=postgresql://authuser:authpass@localhost:5432/authdb  # Windows
-# export DATABASE_URL=postgresql://authuser:authpass@localhost:5432/authdb  # Mac/Linux
-set JWT_SECRET=dev-secret-key-change-in-production  # Windows
-# export JWT_SECRET=dev-secret-key-change-in-production  # Mac/Linux
+# Load environment variables from your .env file (copy .env.example → .env and fill in values)
+# PowerShell: Get-Content ../.env | ForEach-Object { if ($_ -match '^([^#=]+)=(.+)$') { [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim()) } }
+# CMD: for /f "tokens=1,2 delims==" %a in (..\.env) do set %a=%b
 python -m app.init_db
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
