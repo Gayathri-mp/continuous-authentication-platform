@@ -8,8 +8,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./auth.db"
     
-    # JWT Settings
-    JWT_SECRET: str = "dev-secret-key-change-in-production"
+    # JWT Settings — MUST be set via environment variable or .env file
+    # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_MINUTES: int = 60
     

@@ -134,19 +134,16 @@ venv\Scripts\activate.bat
 # Install dependencies
 pip install -r requirements.txt
 
-# Set environment variables (PowerShell)
-$env:DATABASE_URL="postgresql://authuser:authpass@localhost:5432/authdb"
-$env:JWT_SECRET="dev-secret-key-change-in-production"
+# Set environment variables — copy .env.example to .env and fill in your values
+# Then load them:
+$env:DATABASE_URL=(Get-Content .env | Select-String 'DATABASE_URL' | ForEach-Object { $_.Line.Split('=',2)[1] })
+$env:JWT_SECRET=(Get-Content .env | Select-String 'JWT_SECRET' | ForEach-Object { $_.Line.Split('=',2)[1] })
 $env:RP_ID="localhost"
 $env:RP_NAME="Adaptive Auth"
 $env:RP_ORIGIN="http://localhost:5173"
 
 # For CMD, use:
-# set DATABASE_URL=postgresql://authuser:authpass@localhost:5432/authdb
-# set JWT_SECRET=dev-secret-key-change-in-production
-# set RP_ID=localhost
-# set RP_NAME=Adaptive Auth
-# set RP_ORIGIN=http://localhost:5173
+# For each var in .env, run: set VAR=value
 
 # Initialize database
 python -m app.init_db
@@ -304,10 +301,10 @@ docker-compose exec backend python -m app.init_db
 ```
 
 **C. Wrong database credentials:**
-Check `docker-compose.yml` for correct credentials:
-- Username: `authuser`
-- Password: `authpass`
-- Database: `authdb`
+Check your `.env` file (copied from `.env.example`) for the correct credentials:
+- Username: see `POSTGRES_USER` in `.env`
+- Password: see `POSTGRES_PASSWORD` in `.env`
+- Database: see `POSTGRES_DB` in `.env`
 - Port: `5432`
 
 ---
@@ -423,14 +420,13 @@ docker-compose exec backend python -c "from app.database import engine; engine.c
 cd d:\project\adaptive-continuous-auth
 docker-compose up -d db
 
-# Terminal 2 - Backend
+# Terminal 2 - Backend (set vars from your .env file first)
 cd d:\project\adaptive-continuous-auth\backend
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
-$env:DATABASE_URL="postgresql://authuser:authpass@localhost:5432/authdb"
-$env:JWT_SECRET="dev-secret-key"
-$env:RP_ORIGIN="http://localhost:5173"
+# Load env vars from .env (PowerShell):
+Get-Content ../.env | ForEach-Object { if ($_ -match '^([^#][^=]*)=(.*)$') { [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim()) } }
 python -m app.init_db
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
