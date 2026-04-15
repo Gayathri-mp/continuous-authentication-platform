@@ -33,10 +33,10 @@ class Settings(BaseSettings):
     MODEL_PATH: str = "data/models/isolation_forest.pkl"
     
     # CORS
-    CORS_ORIGINS: list = ["http://localhost:5173", "http://localhost:8080", "http://127.0.0.1:5173", "http://127.0.0.1:8080", "null"]
+    CORS_ORIGINS: list = ["http://localhost:5173", "http://localhost:8080", "http://127.0.0.1:5173", "http://127.0.0.1:8080"]
 
     # Demo mode — lower ML training bar so impersonation demo works out of the box
-    DEMO_MODE: bool = True
+    DEMO_MODE: bool = False
     DEMO_MIN_SESSIONS: int = 1  # train model after just 1 session in demo mode
     DEMO_MIN_VECTORS: int = 5   # minimum vectors to start training in demo mode
     

@@ -46,21 +46,30 @@ ENV/
 .env.*.local
 *.env
 
-# Database
+# Database — all locations
 *.db
 *.sqlite
 *.sqlite3
 data/raw_events/
 data/features/
+backend/*.db
+backend/*.sqlite
 
 # ML Models (optional - uncomment if models are large)
 # data/models/*.pkl
 # data/models/*.joblib
 
-# Logs
+# Logs — all locations
 *.log
 logs/
 *.log.*
+*.err
+backend/*.log
+backend/*.err
+
+# Debug/scratch scripts (should never be in production)
+debug_*.py
+backend/debug_*.py
 
 # Docker
 .dockerignore

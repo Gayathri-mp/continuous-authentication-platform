@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from app.config import settings
 from app.database import init_db
 from app.auth.routes import router as auth_router
@@ -10,10 +11,44 @@ from app.utils.logger import logger
 if settings.DEMO_MODE:
     from app.demo.routes import router as demo_router
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: startup and shutdown logic."""
+    # --- Startup ---
+    logger.info("Starting Adaptive Continuous Authentication Platform")
+    try:
+        init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {str(e)}")
+
+    if settings.DEMO_MODE:
+        import app.trust.engine as _eng
+        _eng.MIN_SESSIONS_TO_TRAIN = settings.DEMO_MIN_SESSIONS
+        _eng.MIN_VECTORS_TO_TRAIN  = settings.DEMO_MIN_VECTORS
+        logger.info(
+            f"Demo mode: ML trains after {settings.DEMO_MIN_SESSIONS} session(s) "
+            f"with {settings.DEMO_MIN_VECTORS}+ vectors"
+        )
+
+    logger.info(
+        "ML strategy: per-user Isolation Forest (trained after "
+        f"{settings.STEPUP_TIMEOUT_SECONDS}s initial sessions). "
+        "Cold-start uses rule-based heuristics."
+    )
+
+    yield  # application runs here
+
+    # --- Shutdown ---
+    logger.info("Shutting down Adaptive Continuous Authentication Platform")
+
+
 app = FastAPI(
     title="Adaptive Continuous Authentication Platform",
     description="Passwordless authentication with behavioral monitoring and per-user ML-based trust scoring",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -31,40 +66,6 @@ app.include_router(trust_router)
 if settings.DEMO_MODE:
     app.include_router(demo_router)
     logger.info("Demo mode enabled — /demo/* routes active")
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize application on startup."""
-    logger.info("Starting Adaptive Continuous Authentication Platform")
-    try:
-        init_db()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Database initialization failed: {str(e)}")
-
-    if settings.DEMO_MODE:
-        # Apply demo-mode ML thresholds at startup so engine.py picks them up
-        import app.trust.engine as _eng
-        _eng.MIN_SESSIONS_TO_TRAIN = settings.DEMO_MIN_SESSIONS
-        _eng.MIN_VECTORS_TO_TRAIN  = settings.DEMO_MIN_VECTORS
-        logger.info(
-            f"Demo mode: ML trains after {settings.DEMO_MIN_SESSIONS} session(s) "
-            f"with {settings.DEMO_MIN_VECTORS}+ vectors"
-        )
-
-    # Per-user models are trained lazily on first scoring — no bootstrap needed.
-    logger.info(
-        "ML strategy: per-user Isolation Forest (trained after "
-        f"{settings.STEPUP_TIMEOUT_SECONDS}s initial sessions). "
-        "Cold-start uses rule-based heuristics."
-    )
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown."""
-    logger.info("Shutting down Adaptive Continuous Authentication Platform")
 
 
 @app.get("/")

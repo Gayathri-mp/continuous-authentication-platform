@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from pydantic import BaseModel
+from datetime import datetime
 import json
 
 from webauthn import (
@@ -257,7 +258,7 @@ async def stepup_complete(
     # --- All checks passed: update sign_count, reset trust ---
     try:
         cred_record.sign_count = verification.new_sign_count
-        cred_record.last_used = __import__("datetime").datetime.utcnow()
+        cred_record.last_used = datetime.utcnow()
 
         session.trust_score = 100.0
         session.status = "OK"

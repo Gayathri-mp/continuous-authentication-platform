@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import Optional
 import json
+import traceback
+from datetime import datetime
 
 from webauthn import (
     generate_registration_options,
@@ -100,7 +102,6 @@ async def register_complete(
 
     except Exception as e:
         logger.error(f"Registration verification failed for {request.username}. Error: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=400, detail=f"WebAuthn registration verification failed: {e}")
 
@@ -259,7 +260,7 @@ async def login_complete(
 
         # Update sign count (replay-attack protection)
         cred_record.sign_count = verification.new_sign_count
-        cred_record.last_used = __import__("datetime").datetime.utcnow()
+        cred_record.last_used = datetime.utcnow()
         db.commit()
 
         delete_challenge(db, f"auth:{user.username}")
@@ -279,7 +280,6 @@ async def login_complete(
         raise
     except Exception as e:
         logger.error(f"Authentication failed: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 

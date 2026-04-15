@@ -71,7 +71,7 @@ def delete_challenge(db: Session, key: str) -> None:
 
 def create_session(db: Session, user_id: str) -> SessionModel:
     """Create a new session for a user."""
-    expires_at = datetime.utcnow() + timedelta(minutes=settings.JWT_EXPIRATION_MINUTES)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_EXPIRATION_MINUTES)
     token_data = {
         "user_id": user_id,
         "session_id": str(uuid.uuid4()),
@@ -118,13 +118,17 @@ def validate_session(db: Session, token: str) -> Optional[SessionModel]:
         if not session:
             return None
 
-        if session.expires_at < datetime.utcnow():
+        now = datetime.now(timezone.utc)
+        expires = session.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < now:
             session.is_active = False
             session.status = "EXPIRED"
             db.commit()
             return None
 
-        session.last_activity = datetime.utcnow()
+        session.last_activity = datetime.now(timezone.utc)
         db.commit()
 
         return session
